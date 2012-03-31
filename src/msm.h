@@ -110,7 +110,6 @@ typedef struct _MSMRec
 struct msm_pixmap_priv {
 	struct msm_drm_bo *bo;
 	int SavedPitch;
-	unsigned int c2dsurface;
 };
 
 /* Macro to get the private record from the ScreenInfo structure */

@@ -131,5 +131,21 @@ msm_get_pixmap_bo(PixmapPtr pix)
 		return priv->bo;
 	}
 
+	/* TODO: perhaps the special handling for scanout pixmap should be done
+	 * elsewhere so it isn't in a hot path.. ie. when the scanout buffer is
+	 * allocated..
+	 */
+	if (priv) {
+		ScreenPtr pScreen = pix->drawable.pScreen;
+		MSMPtr pMsm = MSMPTR_FROM_PIXMAP(pix);
+		// TODO .. how to handle offset for rotated pixmap.. worry about that later
+		if (pScreen->GetScreenPixmap(pScreen) == pix) {
+			priv->bo = pMsm->fbBo;
+			msm_drm_bo_alloc(priv->bo);
+			return priv->bo;
+		}
+
+	}
+
 	return NULL;
 }
