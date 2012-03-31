@@ -39,6 +39,7 @@
 
 #include <drm.h>
 #include <drm/kgsl_drm.h>
+#include <linux/msm_kgsl.h>
 
 #include "msm.h"
 #include "msm-drm.h"
@@ -176,7 +177,7 @@ _msm_drm_bo_free(struct msm_drm_bo *bo)
 }
 
 struct msm_drm_bo *
-msm_drm_bo_create(MSMPtr pMsm, int fd, int size, int type)
+msm_drm_bo_create(MSMPtr pMsm, int size, int type)
 {
 	struct drm_kgsl_gem_create create;
 	struct msm_drm_bo *bo;
@@ -202,7 +203,7 @@ msm_drm_bo_create(MSMPtr pMsm, int fd, int size, int type)
 	memset(&create, 0, sizeof(create));
 	create.size = size;
 
-	ret = ioctl(fd, DRM_IOCTL_KGSL_GEM_CREATE, &create);
+	ret = ioctl(pMsm->drmFD, DRM_IOCTL_KGSL_GEM_CREATE, &create);
 
 	if (ret)
 		return NULL;
@@ -214,7 +215,7 @@ msm_drm_bo_create(MSMPtr pMsm, int fd, int size, int type)
 
 	bo->size = size;
 	bo->handle = create.handle;
-	bo->fd = fd;
+	bo->fd = pMsm->drmFD;
 	bo->active = 0;
 	bo->count = 1;
 
@@ -307,11 +308,11 @@ msm_drm_bo_bind_gpu(struct msm_drm_bo *bo)
 	struct drm_kgsl_gem_bind_gpu bind;
 	int ret;
 
-	if (bo->gpuaddr[0])
-		return 0;
-
 	if (bo == NULL)
 		return -1;
+
+	if (bo->gpuaddr[0])
+		return 0;
 
 	bind.handle = bo->handle;
 
@@ -332,6 +333,10 @@ msm_drm_bo_bind_gpu(struct msm_drm_bo *bo)
 		bufinfo.handle = bo->handle;
 
 		ret = ioctl(bo->fd, DRM_IOCTL_KGSL_GEM_GET_BUFINFO, &bufinfo);
+		if (ret) {
+			ErrorF("failed to bind, GET_BUFINFO failed: %d (%s)\n", ret, strerror(errno));
+			return ret;
+		}
 
 		for(i = 0; !ret && i < bufinfo.count; i++)
 			bo->gpuaddr[i] = bufinfo.gpuaddr[i];
@@ -339,6 +344,24 @@ msm_drm_bo_bind_gpu(struct msm_drm_bo *bo)
 #endif
 
 	return 0;
+}
+
+unsigned int
+msm_drm_bo_gpuptr(struct msm_drm_bo *bo)
+{
+	msm_drm_bo_alloc(bo);
+	if (!msm_drm_bo_bind_gpu(bo))
+		return bo->gpuaddr[bo->active];
+	return 0;
+}
+
+void *
+msm_drm_bo_hostptr(struct msm_drm_bo *bo)
+{
+	msm_drm_bo_alloc(bo);
+	if (!msm_drm_bo_map(bo))
+		return bo->hostptr;
+	return NULL;
 }
 
 int
@@ -373,18 +396,20 @@ msm_drm_bo_map(struct msm_drm_bo *bo)
 		bufinfo.handle = bo->handle;
 
 		ret = ioctl(bo->fd, DRM_IOCTL_KGSL_GEM_GET_BUFINFO, &bufinfo);
-
-		if (ret == 0) {
-			for(i = 0; i < bufinfo.count; i++) {
-				bo->offsets[i] = bufinfo.offset[i];
-				bo->gpuaddr[i] = bufinfo.gpuaddr[i];
-			}
-
-			bo->count = bufinfo.count;
-			bo->active = bufinfo.active;
-
-			mapsize = bo->size * bo->count;
+		if (ret) {
+			ErrorF("failed to map, GET_BUFINFO failed: %d (%s)\n", ret, strerror(errno));
+			return ret;
 		}
+
+		for(i = 0; i < bufinfo.count; i++) {
+			bo->offsets[i] = bufinfo.offset[i];
+			bo->gpuaddr[i] = bufinfo.gpuaddr[i];
+		}
+
+		bo->count = bufinfo.count;
+		bo->active = bufinfo.active;
+
+		mapsize = bo->size * bo->count;
 	}
 #endif
 
@@ -501,7 +526,7 @@ int msm_drm_bo_support_swap(int fd)
 /* Create a buffer object for the framebuffer */
 
 struct msm_drm_bo *
-msm_drm_bo_create_fb(MSMPtr pMsm, int drmfd, int fbfd, int size)
+msm_drm_bo_create_fb(MSMPtr pMsm, int fbfd, int size)
 {
 	struct drm_kgsl_gem_create_fd createfd;
 	struct msm_drm_bo *bo;
@@ -510,7 +535,7 @@ msm_drm_bo_create_fb(MSMPtr pMsm, int drmfd, int fbfd, int size)
 	memset(&createfd, 0, sizeof(createfd));
 	createfd.fd = fbfd;
 
-	ret = ioctl(drmfd, DRM_IOCTL_KGSL_GEM_CREATE_FD, &createfd);
+	ret = ioctl(pMsm->drmFD, DRM_IOCTL_KGSL_GEM_CREATE_FD, &createfd);
 
 	if (ret)
 		return NULL;
@@ -522,11 +547,33 @@ msm_drm_bo_create_fb(MSMPtr pMsm, int drmfd, int fbfd, int size)
 
 	bo->size = size;
 	bo->handle = createfd.handle;
-	bo->fd =drmfd;
+	bo->fd = pMsm->drmFD;
 	bo->active = 0;
 	bo->count = 1;
 
 	bo->memtype = DRM_KGSL_GEM_TYPE_FD_FBMEM;
+
+//	if (!msm_drm_bo_bind_gpu(bo)) {
+	{
+		/* not sure if binding to gpu thru this path is even intended
+		 * to work.. but we should fallback to using fixed_info.smem_start..
+		 */
+		struct kgsl_map_user_mem req = {
+				.memtype = KGSL_USER_MEM_TYPE_ADDR,
+				.len     = size,
+				.offset  = 0,
+				.hostptr = (unsigned long)pMsm->fbmem,
+		};
+		ret = ioctl(pMsm->kgsl_3d0_fd, IOCTL_KGSL_MAP_USER_MEM, &req);
+		if (ret) {
+			ErrorF("IOCTL_KGSL_MAP_USER_MEM failed: %d (%s)\n",
+					ret, strerror(errno));
+			free(bo);
+			return NULL;
+		}
+		bo->gpuaddr[0] = req.gpuaddr;
+		bo->hostptr    = pMsm->fbmem;
+	}
 
 	return bo;
 }

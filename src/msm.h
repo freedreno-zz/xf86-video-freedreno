@@ -62,6 +62,8 @@ typedef enum
 	MSM_MDP_VERSION_40,
 } MSMChipType;
 
+struct kgsl_ringbuffer;
+
 typedef struct _MSMRec
 {
 	/* File descriptor for the framebuffer device */
@@ -94,6 +96,14 @@ typedef struct _MSMRec
 	int drmFD;
 	char drmDevName[64];
 
+	int kgsl_3d0_fd;
+
+	/* for now just a single ringbuffer.. not sure if we need more..
+	 * probably would like more until context restore works in a sane
+	 * way..
+	 */
+	struct kgsl_ringbuffer *rings[2];
+
 	int pixmapMemtype;
 	int DRIMemtype;
 	struct msm_drm_bo *cachedBo;
@@ -118,6 +128,7 @@ struct msm_pixmap_priv {
 #define MSMPTR_FROM_PIXMAP(_x)         \
 		MSMPTR(xf86Screens[(_x)->drawable.pScreen->myNum])
 
+Bool MSMSetupAccel(ScreenPtr pScreen);
 Bool MSMSetupExa(ScreenPtr);
 void MSMSetCursorPosition(MSMPtr pMsm, int x, int y);
 void MSMCursorEnable(MSMPtr pMsm, Bool enable);

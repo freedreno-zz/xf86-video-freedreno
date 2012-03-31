@@ -763,12 +763,6 @@ MSMScreenInit(int scrnIndex, ScreenPtr pScreen, int argc, char **argv)
 
 	pMsm->curVisiblePtr = pMsm->fbmem;
 
-	/* Make a buffer object for the framebuffer so that the GPU MMU
-	 * can use it
-	 */
-	pMsm->fbBo = msm_drm_bo_create_fb(pMsm, pMsm->drmFD, pMsm->fd,
-			pMsm->fixed_info.smem_len);
-
 	/* Set up the mode - this doesn't actually touch the hardware,
 	 * but it makes RandR all happy */
 
@@ -839,7 +833,7 @@ MSMScreenInit(int scrnIndex, ScreenPtr pScreen, int argc, char **argv)
 	/* Set up EXA */
 	xf86LoadSubModule(pScrn, "exa");
 
-	if (!MSMSetupExa(pScreen))
+	if (!MSMSetupAccel(pScreen))
 		ERROR_MSG("Unable to setup EXA");
 
 	/* Set up the software cursor */

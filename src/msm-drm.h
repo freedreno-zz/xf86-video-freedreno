@@ -55,12 +55,14 @@ struct msm_drm_bo {
 };
 
 int msm_drm_init(int fd);
-struct msm_drm_bo *msm_drm_bo_create(MSMPtr pMsm, int fd, int size, int type);
+struct msm_drm_bo *msm_drm_bo_create(MSMPtr pMsm, int size, int type);
 int msm_drm_bo_flink(struct msm_drm_bo *bo, unsigned int *name);
 void msm_drm_bo_free(MSMPtr pMsm, struct msm_drm_bo *bo);
 void msm_drm_bo_unmap(struct msm_drm_bo *bo);
 int msm_drm_bo_map(struct msm_drm_bo *bo);
 int msm_drm_bo_bind_gpu(struct msm_drm_bo *bo);
+unsigned int msm_drm_bo_gpuptr(struct msm_drm_bo *bo);
+void *msm_drm_bo_hostptr(struct msm_drm_bo *bo);
 int msm_drm_bo_alloc(struct msm_drm_bo *bo);
 int msm_drm_bo_set_memtype(struct msm_drm_bo *bo, int type);
 int msm_drm_bo_get_memtype(struct msm_drm_bo *bo);
@@ -70,6 +72,6 @@ int msm_drm_bo_set_bufcount(struct msm_drm_bo *bo, int count);
 int msm_drm_bo_swap_buffers(struct msm_drm_bo *bo);
 
 int msm_drm_bo_support_swap(int fd);
-struct msm_drm_bo *msm_drm_bo_create_fb(MSMPtr pMsm, int drmfd, int fbfd,
-		int size);
+struct msm_drm_bo *msm_drm_bo_create_fb(MSMPtr pMsm, int fbfd, int size);
+
 #endif

@@ -36,6 +36,7 @@
 
 #include "msm.h"
 #include "msm-drm.h"
+#include "msm-accel.h"
 
 #define xFixedtoDouble(_f) (double) ((_f)/(double) xFixed1)
 
@@ -491,7 +492,9 @@ MSMDoneComposite(PixmapPtr pDst)
 static int
 MSMMarkSync(ScreenPtr pScreen)
 {
-	return 0;
+	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
+	MSMPtr pMsm = MSMPTR(pScrn);
+	return kgsl_ringbuffer_mark(pMsm->rings[1]);
 }
 
 
@@ -510,7 +513,9 @@ MSMMarkSync(ScreenPtr pScreen)
 static void
 MSMWaitMarker(ScreenPtr pScreen, int marker)
 {
-
+	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
+	MSMPtr pMsm = MSMPTR(pScrn);
+	kgsl_ringbuffer_wait(pMsm->rings[1], marker);
 }
 
 static Bool
@@ -595,8 +600,7 @@ MSMCreatePixmap(ScreenPtr pScreen, int size, int align)
 	if (!size)
 		return priv;
 
-	priv->bo = msm_drm_bo_create(pMsm, pMsm->drmFD, size,
-			pMsm->pixmapMemtype);
+	priv->bo = msm_drm_bo_create(pMsm, size, pMsm->pixmapMemtype);
 
 	if (priv->bo)
 		return priv;
@@ -625,10 +629,11 @@ Bool
 MSMSetupExa(ScreenPtr pScreen)
 {
 	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
-
 	MSMPtr pMsm = MSMPTR(pScrn);
-
 	ExaDriverPtr pExa;
+
+	/* Set up EXA */
+	xf86LoadSubModule(pScrn, "exa");
 
 	if (pMsm->pExa == NULL)
 		pMsm->pExa = exaDriverAlloc();

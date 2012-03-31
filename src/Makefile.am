@@ -9,6 +9,7 @@ freedreno_drv_ladir = @moduledir@/drivers
 freedreno_drv_la_SOURCES = \
 	msm-drm.c \
 	msm-driver.c \
+	msm-accel.c \
 	msm-exa.c \
 	msm-output.c \
 	msm-display.c \
