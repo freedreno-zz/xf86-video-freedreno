@@ -27,6 +27,8 @@
 #include "msm.h"
 #include "msm-drm.h"
 
+#define LOG_DWORDS 1
+
 struct kgsl_vmalloc_bo;
 
 struct kgsl_ringbuffer {
@@ -54,7 +56,25 @@ void kgsl_ringbuffer_wait(struct kgsl_ringbuffer *ring, int marker);
 static inline void
 OUT_RING(struct kgsl_ringbuffer *ring, unsigned data)
 {
+	if (LOG_DWORDS) {
+		ErrorF("ring[%d]: OUT_RING   %04x:  %08x\n", ring->drawctxt_id,
+				(uint32_t)(ring->cur - ring->last_start), data);
+	}
 	*(ring->cur++) = data;
+}
+
+static inline void
+OUT_RELOC(struct kgsl_ringbuffer *ring, struct msm_drm_bo *bo)
+{
+	/* we don't really do reloc's, so just emits the gpuaddr for a bo..
+	 * (but someday we might do something more clever..)
+	 */
+	if (LOG_DWORDS) {
+		ErrorF("ring[%d]: OUT_RELOC  %04x:  %08x\n", ring->drawctxt_id,
+				(uint32_t)(ring->cur - ring->last_start),
+				msm_drm_bo_gpuptr(bo));
+	}
+	*(ring->cur++) = msm_drm_bo_gpuptr(bo);
 }
 
 static inline void
@@ -95,15 +115,6 @@ END_RING(struct kgsl_ringbuffer *ring)
 	 * to work sanely..
 	 */
 	kgsl_ringbuffer_flush(ring, 0);
-}
-
-static inline void
-OUT_RELOC(struct kgsl_ringbuffer *ring, struct msm_drm_bo *bo)
-{
-	/* we don't really do reloc's, so just emits the gpuaddr for a bo..
-	 * (but someday we might do something more clever..)
-	 */
-	OUT_RING(ring, msm_drm_bo_gpuptr(bo));
 }
 
 
