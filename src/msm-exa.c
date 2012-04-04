@@ -43,8 +43,11 @@
 #define ENABLE_EXA_TRACE				1
 #define ENABLE_SW_FALLBACK_REPORTS		1
 
-#define SCREEN(pDraw) \
-	ScrnInfoPtr pScrn = xf86Screens[((DrawablePtr)(pDraw))->pScreen->myNum];
+#define MSM_LOCALS(pDraw) \
+	ScrnInfoPtr pScrn = xf86Screens[((DrawablePtr)(pDraw))->pScreen->myNum]; \
+	MSMPtr pMsm = MSMPTR(pScrn);									\
+	struct kgsl_ringbuffer *ring = pMsm->rings[1]; (void)ring;		\
+	struct exa_state *exa = pMsm->exa; (void)exa
 
 #define TRACE_EXA(fmt, ...) do {									\
 		if (ENABLE_EXA_TRACE)										\
@@ -60,6 +63,10 @@
 		}															\
 	} while (0)
 
+struct exa_state {
+	/* solid state: */
+	uint32_t fill;
+};
 
 #if 0
 /* Get the length of the vector represented by (x,y) */
@@ -168,7 +175,7 @@ transform_get_rotate(PictTransform *t, double *d)
 static Bool
 MSMPrepareSolid(PixmapPtr pPixmap, int alu, Pixel planemask, Pixel fg)
 {
-	SCREEN(pPixmap);
+	MSM_LOCALS(pPixmap);
 
 	TRACE_EXA("%p <- alu=%x, planemask=%08x, fg=%08x",
 			pPixmap, alu, (unsigned int)planemask, (unsigned int)fg);
@@ -176,7 +183,19 @@ MSMPrepareSolid(PixmapPtr pPixmap, int alu, Pixel planemask, Pixel fg)
 	EXA_FAIL_IF(planemask != FB_ALLONES);
 	EXA_FAIL_IF(alu != GXcopy);
 
-	EXA_FAIL_IF(TRUE);
+	// TODO other color formats
+	EXA_FAIL_IF(pPixmap->drawable.bitsPerPixel != 32);
+
+	exa->fill = fg;
+
+	/* Note: 16bpp 565 we want something like this.. I think..
+
+		color  = ((fg << 3) & 0xf8) | ((fg >> 2) & 0x07) |
+			((fg << 5) & 0xfc00)    | ((fg >> 1) & 0x300) |
+			((fg << 8) & 0xf80000)  | ((fg << 3) & 0x70000) |
+			0xff000000; // implicitly DISABLE_ALPHA
+
+	 */
 
 	return TRUE;
 }
@@ -203,8 +222,70 @@ MSMPrepareSolid(PixmapPtr pPixmap, int alu, Pixel planemask, Pixel fg)
 static void
 MSMSolid(PixmapPtr pPixmap, int x1, int y1, int x2, int y2)
 {
-	SCREEN(pPixmap);
+	MSM_LOCALS(pPixmap);
+	struct msm_drm_bo *dst_bo = msm_get_pixmap_bo(pPixmap);
+	uint32_t w, h, p;
+
+	w = pPixmap->drawable.width;
+	h = pPixmap->drawable.height;
+
+	/* pitch specified in units of 32 bytes, it appears.. not quite sure
+	 * max size yet, but I think 11 or 12 bits..
+	 */
+	p = (msm_pixmap_get_pitch(pPixmap) / 32) & 0xfff;
+
 	TRACE_EXA("x1=%d\ty1=%d\tx2=%d\ty2=%d", x1, y1, x2, y2);
+
+	BEGIN_RING(ring, 23);
+	OUT_RING  (ring, 0x0c000000);
+	OUT_RING  (ring, 0x11000000);
+	OUT_RING  (ring, 0xd0030000);
+	OUT_RING  (ring, 0xd2000000 | (((h * 2) & 0xfff) << 12) | (w & 0xfff));   // [1]
+	OUT_RING  (ring, 0x01007000 | p);
+	OUT_RING  (ring, 0x7c000100);
+	OUT_RELOC (ring, dst_bo);
+	OUT_RING  (ring, 0x7c0001d3);
+	OUT_RELOC (ring, dst_bo);
+	OUT_RING  (ring, 0x7c0001d1);
+	OUT_RING  (ring, 0x40007000 | p);
+	OUT_RING  (ring, 0xd5000000);
+	OUT_RING  (ring, 0x08000000 | ((x2 & 0xfff) << 12) | (x1 & 0xfff));
+	OUT_RING  (ring, 0x09000000 | ((y2 & 0xfff) << 12) | (y1 & 0xfff));
+	OUT_RING  (ring, 0x0f000000);                                             // [2]
+	OUT_RING  (ring, 0x0f000000);                                             // [2]
+	OUT_RING  (ring, 0x0f000001);                                             // [2]
+	OUT_RING  (ring, 0x0e000000);
+#if 0
+	/* there seem to be 3 ways to encode bx/by/bw/bh depending on which
+	 * are greater than 0xff.. seems like we can ignore this and always
+	 * encode worst case..
+	 */
+	if ((x1 > 0xff) || (y1 > 0xff)) {
+		OUT_RING(ring, 0x7c0002f0);
+		OUT_RING(ring, ((x1 & 0xffff) << 16) | (y1 & 0xffff));
+		OUT_RING(ring, (((x2 - x1) & 0xffff) << 16) | ((y2 - y1) & 0xffff));
+	} else if (((x2 - x1) > 0xff) || ((y2 - y1) > 0xff)) {
+		OUT_RING(ring, 0xf0000000 | (x1 << 16) | y1);
+		OUT_RING(ring, 0x7c0001f1);
+		OUT_RING(ring, (((x2 - x1) & 0xffff) << 16) | ((y2 - y1) & 0xffff));
+	} else {
+		OUT_RING(ring, 0xf0000000 | (x1 << 16) | y1);
+		OUT_RING(ring, 0xf1000000 | ((x2 - x1) << 16) | (y2 - y1));
+	}
+#else
+	OUT_RING(ring, 0x7c0002f0);
+	OUT_RING(ring, ((x1 & 0xffff) << 16) | (y1 & 0xffff));
+	OUT_RING(ring, (((x2 - x1) & 0xffff) << 16) | ((y2 - y1) & 0xffff));
+#endif
+	OUT_RING  (ring, 0x7c0001ff);
+	OUT_RING  (ring, exa->fill);
+	END_RING  (ring);
+
+	/* Notes:
+	 *  [1] not sure why it is h*2.. maybe it is shifted extra bit over?
+	 *  [2] these appear to differ even between two identical blits.. maybe
+	 *      they are random garbage?
+	 */
 }
 
 /**
@@ -260,7 +341,7 @@ static Bool
 MSMPrepareCopy(PixmapPtr pSrcPixmap, PixmapPtr pDstPixmap, int dx, int dy,
 		int alu, Pixel planemask)
 {
-	SCREEN(pDstPixmap);
+	MSM_LOCALS(pDstPixmap);
 
 	TRACE_EXA("%p <- %p", pDstPixmap, pSrcPixmap);
 
@@ -300,7 +381,7 @@ static void
 MSMCopy(PixmapPtr pDstPixmap, int srcX, int srcY, int dstX, int dstY,
 		int width, int height)
 {
-	SCREEN(pDstPixmap);
+	MSM_LOCALS(pDstPixmap);
 
 	TRACE_EXA("srcX=%d\tsrcY=%d\tdstX=%d\tdstY=%d\twidth=%d\theight=%d",
 			srcX, srcY, dstX, dstY, width, height);
@@ -353,7 +434,7 @@ static Bool
 MSMCheckComposite(int op, PicturePtr pSrcPicture, PicturePtr pMaskPicture,
 		PicturePtr pDstPicture)
 {
-	SCREEN(pDstPicture->pDrawable);
+	MSM_LOCALS(pDstPicture->pDrawable);
 	TRACE_EXA("%p <- %p (%p)", pDstPicture, pSrcPicture, pMaskPicture);
 	EXA_FAIL_IF(TRUE);
 	return TRUE;
@@ -403,7 +484,7 @@ MSMCheckComposite(int op, PicturePtr pSrcPicture, PicturePtr pMaskPicture,
  *   pixmaps that have a width or height that is not a power of two.
  *
  * If your hardware can't support source pictures (textures) with
- * non-power-of-two pitches, you should set #EXA_OFFSCREEN_ALIGN_POT.
+ * non-power-of-two pitches, you should set #EXA_OFFMSM_LOCALS_ALIGN_POT.
  *
  * Note that many drivers will need to store some of the data in the driver
  * private record, for sending to the hardware with each drawing command.
@@ -417,7 +498,7 @@ static Bool
 MSMPrepareComposite(int op, PicturePtr pSrcPicture, PicturePtr pMaskPicture,
 		PicturePtr pDstPicture, PixmapPtr pSrc, PixmapPtr pMask, PixmapPtr pDst)
 {
-	SCREEN(pDst);
+	MSM_LOCALS(pDst);
 	TRACE_EXA("%p <- %p (%p)", pDst, pSrc, pMask);
 	EXA_FAIL_IF(TRUE);
 	return TRUE;
@@ -451,7 +532,7 @@ static void
 MSMComposite(PixmapPtr pDst, int srcX, int srcY, int maskX, int maskY,
 		int dstX, int dstY, int width, int height)
 {
-	SCREEN(pDst);
+	MSM_LOCALS(pDst);
 	TRACE_EXA("srcX=%d\tsrcY=%d\tmaskX=%d\tmaskY=%d\tdstX=%d\tdstY=%d\twidth=%d\theight=%d",
 			srcX, srcY, maskX, maskY, dstX, dstY, width, height);
 }
@@ -635,8 +716,10 @@ MSMSetupExa(ScreenPtr pScreen)
 	/* Set up EXA */
 	xf86LoadSubModule(pScrn, "exa");
 
-	if (pMsm->pExa == NULL)
+	if (pMsm->pExa == NULL) {
 		pMsm->pExa = exaDriverAlloc();
+		pMsm->exa = calloc(1, sizeof(*pMsm->exa));
+	}
 
 	if (pMsm->pExa == NULL)
 		return FALSE;

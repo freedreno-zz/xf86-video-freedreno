@@ -63,6 +63,7 @@ typedef enum
 } MSMChipType;
 
 struct kgsl_ringbuffer;
+struct exa_state;
 
 typedef struct _MSMRec
 {
@@ -103,6 +104,9 @@ typedef struct _MSMRec
 	 * way..
 	 */
 	struct kgsl_ringbuffer *rings[2];
+
+	/* EXA state: */
+	struct exa_state *exa;
 
 	int pixmapMemtype;
 	int DRIMemtype;
