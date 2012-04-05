@@ -66,6 +66,9 @@
 struct exa_state {
 	/* solid state: */
 	uint32_t fill;
+
+	/* copy state: */
+	PixmapPtr src;
 };
 
 #if 0
@@ -348,7 +351,11 @@ MSMPrepareCopy(PixmapPtr pSrcPixmap, PixmapPtr pDstPixmap, int dx, int dy,
 	EXA_FAIL_IF(planemask != FB_ALLONES);
 	EXA_FAIL_IF(alu != GXcopy);
 
-	EXA_FAIL_IF(TRUE);
+	// TODO other color formats
+	EXA_FAIL_IF(pSrcPixmap->drawable.bitsPerPixel != 32);
+	EXA_FAIL_IF(pDstPixmap->drawable.bitsPerPixel != 32);
+
+	exa->src = pSrcPixmap;
 
 	return TRUE;
 }
@@ -382,9 +389,83 @@ MSMCopy(PixmapPtr pDstPixmap, int srcX, int srcY, int dstX, int dstY,
 		int width, int height)
 {
 	MSM_LOCALS(pDstPixmap);
+	PixmapPtr pSrcPixmap = exa->src;
+	struct msm_drm_bo *dst_bo = msm_get_pixmap_bo(pDstPixmap);
+	struct msm_drm_bo *src_bo = msm_get_pixmap_bo(pSrcPixmap);
+	uint32_t dw, dh, dp, sw, sh, sp;
+
+	dw = pDstPixmap->drawable.width;
+	dh = pDstPixmap->drawable.height;
+	sw = pSrcPixmap->drawable.width;
+	sh = pSrcPixmap->drawable.height;
+
+	/* pitch specified in units of 32 bytes, it appears.. not quite sure
+	 * max size yet, but I think 11 or 12 bits..
+	 */
+	dp = (msm_pixmap_get_pitch(pDstPixmap) / 32) & 0xfff;
+	sp = (msm_pixmap_get_pitch(pSrcPixmap) / 32) & 0xfff;
 
 	TRACE_EXA("srcX=%d\tsrcY=%d\tdstX=%d\tdstY=%d\twidth=%d\theight=%d",
 			srcX, srcY, dstX, dstY, width, height);
+
+	BEGIN_RING(ring, 45);
+	OUT_RING  (ring, 0x0c000000);
+	OUT_RING  (ring, 0x11000000);
+	OUT_RING  (ring, 0xd0030000);
+	/* setup for dst parameters appears similar to solid: */
+	OUT_RING  (ring, 0xd2000000 | (((dh * 2) & 0xfff) << 12) | (dw & 0xfff));
+	OUT_RING  (ring, 0x01007000 | dp);
+	OUT_RING  (ring, 0x7c000100);
+	OUT_RELOC (ring, dst_bo);
+	OUT_RING  (ring, 0x7c0001d3);
+	OUT_RELOC (ring, dst_bo);
+	OUT_RING  (ring, 0x7c0001d1);
+	OUT_RING  (ring, 0x40007000 | dp);
+	OUT_RING  (ring, 0xd5000000);
+	/* from here, dst params differ from solid: */
+	OUT_RING  (ring, 0x0c000000);
+	OUT_RING  (ring, 0x08000000 | ((dw - 1) & 0xfff) << 12);  // XXX
+	OUT_RING  (ring, 0x09000000 | ((dh - 1) & 0xfff) << 12);  // XXX
+	OUT_RING  (ring, 0x7c00020a);
+	OUT_RING  (ring, 0xff000000);
+	OUT_RING  (ring, 0xff000000);
+	OUT_RING  (ring, 0x11000000);
+	OUT_RING  (ring, 0xd0000000);
+	OUT_RING  (ring, 0x7c0003d1);
+	/* setup of src parameters: */
+	OUT_RING  (ring, 0x40007000 | sp);
+	/* possibly width/height are 13 bits.. this is similar to  dst params
+	 * in copy and solid width the 'd2' in high byte.. low bit of d2 is
+	 * '0' which would support the 13 bit sizes theory:
+	 * TODO add some tests to confirm w/h size theory
+	 */
+	OUT_RING  (ring, (((sh * 2) & 0xfff) << 12) | (sw & 0xfff));
+	OUT_RELOC (ring, src_bo);
+	OUT_RING  (ring, 0xd5000000);
+	OUT_RING  (ring, 0xd0000000);
+	OUT_RING  (ring, 0x0f00000a);    // XXX these differ between identical blits
+	OUT_RING  (ring, 0x0f00000a);    // XXX these differ between identical blits
+	OUT_RING  (ring, 0x0f00000a);    // XXX these differ between identical blits
+	OUT_RING  (ring, 0x0f00000a);
+	OUT_RING  (ring, 0xd0000000);
+	OUT_RING  (ring, 0x0f00000a);
+	OUT_RING  (ring, 0x0f00000a);
+	OUT_RING  (ring, 0x0f00000a);
+	OUT_RING  (ring, 0x0e000002);
+	/* again, like solid, there seems to be multiple ways to encode the coords,
+	 * depending on the size but I think we can go wit worst-case:
+	 */
+	OUT_RING  (ring, 0x7c0003f0);
+	OUT_RING  (ring, (dstX & 0xffff) << 16 | (dstY & 0xffff));
+	OUT_RING  (ring, (width & 0xfff) << 16 | (height & 0xffff));
+	OUT_RING  (ring, (srcX & 0xffff) << 16 | (srcY & 0xffff));
+	OUT_RING  (ring, 0xd0000000);
+	OUT_RING  (ring, 0xd0000000);
+	OUT_RING  (ring, 0xd0000000);
+	OUT_RING  (ring, 0xd0000000);
+	OUT_RING  (ring, 0xd0000000);
+	OUT_RING  (ring, 0xd0000000);
+	END_RING  (ring);
 }
 
 /**
