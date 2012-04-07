@@ -595,12 +595,19 @@ MSMCheckComposite(int op, PicturePtr pSrcPicture, PicturePtr pMaskPicture,
 			pMaskPicture, pMaskPicture ? pMaskPicture->format : 0,
 			pMaskPicture ? pMaskPicture->repeat : 0);
 
-	// TODO add transforms later:
-	EXA_FAIL_IF(pSrcPicture->transform);
-
 	if (pMaskPicture) {
 		EXA_FAIL_IF(pMaskPicture->transform);
+		EXA_FAIL_IF(pMaskPicture->repeat);
+		/* this doesn't appear to be supported by libC2D2.. although
+		 * perhaps it is supported by the hw?  It might be worth
+		 * experimenting with this at some point
+		 */
+		EXA_FAIL_IF(pMaskPicture->componentAlpha);
 	}
+
+	// TODO src add transforms later:
+	EXA_FAIL_IF(pSrcPicture->transform);
+	EXA_FAIL_IF(pSrcPicture->repeat);
 
 	// TODO mask
 	EXA_FAIL_IF(pMaskPicture);
@@ -646,6 +653,8 @@ MSMCheckComposite(int op, PicturePtr pSrcPicture, PicturePtr pMaskPicture,
  * - pMarkPicture may have componentAlpha set, which greatly changes
  *   the behavior of the Composite operation.  componentAlpha has no effect
  *   when set on pSrcPicture or pDstPicture.
+ *   Note: componentAlpha means to treat each R/G/B channel as an independent
+ *   alpha value for the corresponding channel in the src.
  * - The source and mask Pictures may have a transformation set
  *   (Picture->transform != NULL), which means that the source coordinates
  *   should be transformed by that transformation, resulting in scaling,
@@ -680,6 +689,7 @@ MSMPrepareComposite(int op, PicturePtr pSrcPicture, PicturePtr pMaskPicture,
 
 	TRACE_EXA("%p <- %p (%p)", pDst, pSrc, pMask);
 
+	// TODO revisit repeat..
 	EXA_FAIL_IF(pSrcPicture->repeat &&
 			((pSrc->drawable.width != 1) || (pSrc->drawable.height != 1)));
 
@@ -724,9 +734,11 @@ MSMComposite(PixmapPtr pDstPixmap, int srcX, int srcY, int maskX, int maskY,
 {
 	MSM_LOCALS(pDstPixmap);
 	PixmapPtr pSrcPixmap = exa->src;
+	PixmapPtr pMaskPixmap = exa->mask;
 	struct msm_drm_bo *dst_bo = msm_get_pixmap_bo(pDstPixmap);
 	struct msm_drm_bo *src_bo = msm_get_pixmap_bo(pSrcPixmap);
-	uint32_t dw, dh, dp, sw, sh, sp;
+	struct msm_drm_bo *mask_bo = NULL;
+	uint32_t dw, dh, dp, sw, sh, sp, mw, mh, mp;
 
 	dw = pDstPixmap->drawable.width;
 	dh = pDstPixmap->drawable.height;
@@ -739,6 +751,12 @@ MSMComposite(PixmapPtr pDstPixmap, int srcX, int srcY, int maskX, int maskY,
 	dp = (msm_pixmap_get_pitch(pDstPixmap) / 32) & 0xfff;
 	sp = (msm_pixmap_get_pitch(pSrcPixmap) / 32) & 0xfff;
 
+	if (pMaskPixmap) {
+		mask_bo = msm_get_pixmap_bo(pMaskPixmap);
+		mw = pMaskPixmap->drawable.width;
+		mh = pMaskPixmap->drawable.height;
+		mp = (msm_pixmap_get_pitch(pMaskPixmap) / 32) & 0xfff;
+	}
 
 	TRACE_EXA("srcX=%d\tsrcY=%d\tmaskX=%d\tmaskY=%d\tdstX=%d\tdstY=%d\twidth=%d\theight=%d",
 			srcX, srcY, maskX, maskY, dstX, dstY, width, height);
@@ -748,43 +766,36 @@ MSMComposite(PixmapPtr pDstPixmap, int srcX, int srcY, int maskX, int maskY,
 	OUT_RING  (ring, 0x11000000);
 	OUT_RING  (ring, 0xd0030000);
 	/* setup for dst parameters: */
+	// TODO check if 13 bit
 	OUT_RING  (ring, 0xd2000000 | (((dh * 2) & 0xfff) << 12) | (dw & 0xfff));
-	//if (dst == A8) {
-	//0100e000 | dp
-	//} else if ((dst == xRGB) || (dst == ARGB)) {
-	//01007000 | dp
-	//}
+	OUT_RING  (ring, 0x40000000 | dp | (pDstPixmap->drawable.depth == 8) ? 0xe000 : 0x7000);
 	OUT_RING  (ring, 0x7c000100);
 	OUT_RELOC (ring, dst_bo);
 	OUT_RING  (ring, 0x7c0001d3);
 	OUT_RELOC (ring, dst_bo);
 	OUT_RING  (ring, 0x7c0001d1);
-	//if (dst == A8) {
-	//4000e000 | dp
-	//} else if ((dst == xRGB) || (dst == ARGB)) {
-	//40007000 | dp
-	//}
+	OUT_RING  (ring, 0x40000000 | dp | (pDstPixmap->drawable.depth == 8) ? 0xe000 : 0x7000);
 	OUT_RING  (ring, 0xd5000000);
 	/* from here, dst params differ from solid: */
 	OUT_RING  (ring, 0x0c000000);
 	OUT_RING  (ring, 0x08000000 | ((dw - 1) & 0xfff) << 12);
 	OUT_RING  (ring, 0x09000000 | ((dh - 1) & 0xfff) << 12);
 
-	//if (dst == xRGB) {
-	//7c00020a
-	//ff000000
-	//ff000000
-	//7c0001b2
-	//ff000000
-	//} else if ((dst == ARGB) || (dst == A8)) {
-	//0a000000
-	//0b000000
-	//}
+	if (!PICT_FORMAT_A(exa->dstpic->format)) {
+		OUT_RING(ring, 0x7c00020a);
+		OUT_RING(ring, 0xff000000);
+		OUT_RING(ring, 0xff000000);
+		OUT_RING(ring, 0x7c0001b2);
+		OUT_RING(ring, 0xff000000);
+	} else {
+		OUT_RING(ring, 0x0a000000);
+		OUT_RING(ring, 0x0b000000);
+	}
 
-	//if (!src_has_alpha) {
-	//7c0001b0
-	//ff000000
-	//}
+	if (!PICT_FORMAT_A(exa->srcpic->format)) {
+		OUT_RING(ring, 0x7c0001b0);
+		OUT_RING(ring, 0xff000000);
+	}
 
 // XXX XXX XXX XXX
 //	OUT_RING  (ring, 0x7c000114);  // XXX this is not always present!!s
@@ -795,26 +806,29 @@ MSMComposite(PixmapPtr pDstPixmap, int srcX, int srcY, int maskX, int maskY,
 //	OUT_RING  (ring, exa->op_dwords[2]);
 
 
-	OUT_RING  (ring, 0x110000e0);
+	OUT_RING  (ring, 0x11000060 | (pMaskPixmap ? 0 : 0x80));
 	OUT_RING  (ring, 0xd0000000);
 	OUT_RING  (ring, 0x7c0003d1);
 	/* setup of src parameters: */
-	//if (src == xRGB) {
-	//40007000 | sp
-	//} else if (src == ARGB) {
-	//42007000 | sp
-	//} else if (src == A8) {
-	//4200e000 | sp
-	//}
-
-	/* possibly width/height are 13 bits.. this is similar to  dst params
-	 * in copy and solid width the 'd2' in high byte.. low bit of d2 is
-	 * '0' which would support the 13 bit sizes theory:
-	 * TODO add some tests to confirm w/h size theory
-	 */
+	OUT_RING  (ring, 0x40000000 | sp | (pSrcPixmap->drawable.depth == 8) ? 0xe000 : 0x7000);
+	// TODO check if 13 bit
 	OUT_RING  (ring, (((sh * 2) & 0xfff) << 12) | (sw & 0xfff));
 	OUT_RELOC (ring, src_bo);
 	OUT_RING  (ring, 0xd5000000);
+	if (pMaskPixmap) {
+		/* XXX C2D2 doesn't give a way to specify maskX/maskY, so not
+		 * entirely sure if this is a hw limitation, or if not how the
+		 * mask coords are specified in the cmdstream.  One possible
+		 * approach is ptr arithmetic on the gpuaddr
+		 */
+		OUT_RING (ring, 0xd0020000);
+		OUT_RING (ring, 0x7c0003d1);
+		OUT_RING (ring, 0x40000000 | mp | (pMaskPixmap->drawable.depth == 8) ? 0xe000 : 0x7000);
+		// TODO check if 13 bit
+		OUT_RING  (ring, (((mh * 2) & 0xfff) << 12) | (mw & 0xfff));
+		OUT_RELOC(ring, mask_bo);
+		OUT_RING (ring, 0xd5000080);
+	}
 	OUT_RING  (ring, 0xd0000000);
 	OUT_RING  (ring, 0x0f00000a);
 	OUT_RING  (ring, 0x0f00000a);
@@ -824,7 +838,7 @@ MSMComposite(PixmapPtr pDstPixmap, int srcX, int srcY, int maskX, int maskY,
 	OUT_RING  (ring, 0x0f00000a);
 	OUT_RING  (ring, 0x0f00000a);
 	OUT_RING  (ring, 0x0f00000a);
-	OUT_RING  (ring, 0x0e000003);    // XXX differs from copy, ..03 vs ..02
+	OUT_RING  (ring, 0x0e000003 | (pMaskPixmap ? 0x04 : 0));
 	OUT_RING  (ring, 0x7c0003f0);
 	OUT_RING  (ring, (dstX & 0xffff) << 16 | (dstY & 0xffff));
 	OUT_RING  (ring, (width & 0xfff) << 16 | (height & 0xffff));
