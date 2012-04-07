@@ -1,6 +1,7 @@
 /* msm-exa.c
  *
  * Copyright (c) 2009-2010, Code Aurora Forum. All rights reserved.
+ * Copyright © 2012 Rob Clark <robclark@freedesktop.org>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -67,9 +68,80 @@ struct exa_state {
 	/* solid state: */
 	uint32_t fill;
 
-	/* copy state: */
-	PixmapPtr src;
+	/* copy/composite state: */
+	uint32_t *op_dwords;
+	PixmapPtr src, mask;
+	PicturePtr dstpic, srcpic, maskpic;
 };
+
+/* TODO possibly there is a single worst-case encoding that uses same
+ * number of dwords, similarly to blit coords which can be encoded
+ * using variable # of dwords depending on # of bits needed to
+ * represent the value??
+ *
+ * NOTE: the ones with only two dwords have Fb=0
+ */
+#if 0
+// xRGB->xRGB
+static const uint32_t composite_op_dwords[][4] = {
+		[PictOpSrc]          = { 0x7c000114, 0x10002010, 0x00000000, 0x18012210 },
+		[PictOpIn]           = { 0x7c000114, 0xb0100004, 0x00000000, 0x18110a04 },
+		[PictOpOut]          = { 0x7c000114, 0xb0102004, 0x00000000, 0x18112a04 },
+		[PictOpOver]         = { 0x7c000114, 0xd080a004, 0x7c000118, 0x8081aa04 },
+		[PictOpOutReverse]   = { 0x7c000114, 0x80808040, 0x7c000118, 0x80808840 },
+		[PictOpAdd]          = { 0x7c000114, 0x5080a004, 0x7c000118, 0x20818204 },
+		[PictOpOverReverse]  = { 0x7c000114, 0x7090a004, 0x7c000118, 0x2091a204 },
+		[PictOpInReverse]    = { 0x7c000114, 0x80800040, 0x7c000118, 0x80800840 },
+		[PictOpAtop]         = { 0x7c000114, 0xf0908004, 0x7c000118, 0xa0918a04 },
+		[PictOpAtopReverse]  = { 0x7c000114, 0xf0902004, 0x7c000118, 0xa0912a04 },
+		[PictOpXor]          = { 0x7c000114, 0xf090a004, 0x7c000118, 0xa091aa04 },
+};
+// ARGB->ARGB
+static const uint32_t composite_op_dwords[][4] = {
+		[PictOpSrc]          = { 0x00000000, 0x14012010, 0x00000000, 0x18012210 },
+		[PictOpIn]           = { 0x00000000, 0x14110004, 0x00000000, 0x18110a04 },
+		[PictOpOut]          = { 0x00000000, 0x14112004, 0x00000000, 0x18112a04 },
+		[PictOpOver]         = { 0x7c000114, 0x0281a004, 0x7c000118, 0x0281aa04 },
+		[PictOpOutReverse]   = { 0x7c000114, 0x02808040, 0x7c000118, 0x02808840 },
+		[PictOpAdd]          = { 0x00000000, 0x1481a004, 0x00000000, 0x18898204 },
+		[PictOpOverReverse]  = { 0x00000000, 0x1491a004, 0x00000000, 0x1891a204 },
+		[PictOpInReverse]    = { 0x7c000114, 0x02800040, 0x7c000118, 0x02800840 },
+		[PictOpAtop]         = { 0x7c000114, 0x02918004, 0x7c000118, 0x02918a04 },
+		[PictOpAtopReverse]  = { 0x7c000114, 0x02912004, 0x7c000118, 0x02912a04 },
+		[PictOpXor]          = { 0x7c000114, 0x0291a004, 0x7c000118, 0x0291aa04 },
+};
+// A8->A8 same as ARGB->ARGB (I guess A8 is expanded to ARGB internally?)
+// ARGB->xRGB
+static const uint32_t composite_op_dwords[][4] = {
+		[PictOpSrc]          = { 0x00000000, 0x14012010, 0x00000000, 0x18012210 },
+		[PictOpIn]           = { 0x7c000114, 0x20110004, 0x00000000, 0x18110a04 },
+		[PictOpOut]          = { 0x7c000114, 0x20112004, 0x00000000, 0x18112a04 },
+		[PictOpOver]         = { 0x7c000114, 0x4281a004, 0x7c000118, 0x0281aa04 },
+		[PictOpOutReverse]   = { 0x7c000114, 0x02808040, 0x7c000118, 0x02808840 },
+		[PictOpAdd]          = { 0x7c000114, 0x4081a004, 0x00000000, 0x18898204 },
+		[PictOpOverReverse]  = { 0x7c000114, 0x6091a004, 0x7c000118, 0x2091a204 },
+		[PictOpInReverse]    = { 0x7c000114, 0x02800040, 0x7c000118, 0x02800840 },
+		[PictOpAtop]         = { 0x7c000114, 0x62918004, 0x7c000118, 0x22918a04 },
+		[PictOpAtopReverse]  = { 0x7c000114, 0x62912004, 0x7c000118, 0x22912a04 },
+		[PictOpXor]          = { 0x7c000114, 0x6291a004, 0x7c000118, 0x2291aa04 },
+};
+// A8->xRGB same as ARGB->xRGB
+// xRGB->ARGB
+static const uint32_t composite_op_dwords[][4] = {
+		[PictOpSrc]          = { 0x7c000114, 0x10002010, 0x00000000, 0x18012210 },
+		[PictOpIn]           = { 0x7c000114, 0x90100004, 0x00000000, 0x18110a04 },
+		[PictOpOut]          = { 0x7c000114, 0x90102004, 0x00000000, 0x18112a04 },
+		[PictOpOver]         = { 0x7c000114, 0x9080a004, 0x7c000118, 0x8081aa04 },
+		[PictOpOutReverse]   = { 0x7c000114, 0x80808040, 0x7c000118, 0x80808840 },
+		[PictOpAdd]          = { 0x7c000114, 0x1080a004, 0x7c000118, 0x20818204 },
+		[PictOpOverReverse]  = { 0x7c000114, 0x1090a004, 0x00000000, 0x1891a204 },
+		[PictOpInReverse]    = { 0x7c000114, 0x80800040, 0x7c000118, 0x80800840 },
+		[PictOpAtop]         = { 0x7c000114, 0x90908004, 0x7c000118, 0x80918a04 },
+		[PictOpAtopReverse]  = { 0x7c000114, 0x90902004, 0x7c000118, 0x80912a04 },
+		[PictOpXor]          = { 0x7c000114, 0x9090a004, 0x7c000118, 0x8091aa04 },
+};
+// xRGB->A8 same as xRGB->A8
+#endif
 
 #if 0
 /* Get the length of the vector represented by (x,y) */
@@ -516,8 +588,33 @@ MSMCheckComposite(int op, PicturePtr pSrcPicture, PicturePtr pMaskPicture,
 		PicturePtr pDstPicture)
 {
 	MSM_LOCALS(pDstPicture->pDrawable);
-	TRACE_EXA("%p <- %p (%p)", pDstPicture, pSrcPicture, pMaskPicture);
-	EXA_FAIL_IF(TRUE);
+
+	TRACE_EXA("op:%02d: %p {%08x, %d} <- %p {%08x, %d} (%p {%08x, %d})", op,
+			pDstPicture, pDstPicture->format, pDstPicture->repeat,
+			pSrcPicture, pSrcPicture->format, pSrcPicture->repeat,
+			pMaskPicture, pMaskPicture ? pMaskPicture->format : 0,
+			pMaskPicture ? pMaskPicture->repeat : 0);
+
+	// TODO add transforms later:
+	EXA_FAIL_IF(pSrcPicture->transform);
+
+	if (pMaskPicture) {
+		EXA_FAIL_IF(pMaskPicture->transform);
+	}
+
+	// TODO mask
+	EXA_FAIL_IF(pMaskPicture);
+
+	EXA_FAIL_IF((op >= ARRAY_SIZE(composite_op_dwords)) ||
+			!composite_op_dwords[op][0]);
+
+	// TODO anything we need to reject early?
+
+	exa->op_dwords = composite_op_dwords[op];
+	exa->dstpic    = pDstPicture;
+	exa->srcpic    = pSrcPicture;
+	exa->maskpic   = pMaskPicture;
+
 	return TRUE;
 }
 
@@ -565,7 +662,7 @@ MSMCheckComposite(int op, PicturePtr pSrcPicture, PicturePtr pMaskPicture,
  *   pixmaps that have a width or height that is not a power of two.
  *
  * If your hardware can't support source pictures (textures) with
- * non-power-of-two pitches, you should set #EXA_OFFMSM_LOCALS_ALIGN_POT.
+ * non-power-of-two pitches, you should set #EXA_OFFSCREEN_ALIGN_POT.
  *
  * Note that many drivers will need to store some of the data in the driver
  * private record, for sending to the hardware with each drawing command.
@@ -580,8 +677,20 @@ MSMPrepareComposite(int op, PicturePtr pSrcPicture, PicturePtr pMaskPicture,
 		PicturePtr pDstPicture, PixmapPtr pSrc, PixmapPtr pMask, PixmapPtr pDst)
 {
 	MSM_LOCALS(pDst);
+
 	TRACE_EXA("%p <- %p (%p)", pDst, pSrc, pMask);
-	EXA_FAIL_IF(TRUE);
+
+	EXA_FAIL_IF(pSrcPicture->repeat &&
+			((pSrc->drawable.width != 1) || (pSrc->drawable.height != 1)));
+
+	if (pMaskPicture) {
+		EXA_FAIL_IF(pMaskPicture->repeat &&
+				((pMask->drawable.width != 1) || (pMask->drawable.height != 1)));
+	}
+
+	exa->src  = pSrc;
+	exa->mask = pMask;
+
 	return TRUE;
 }
 
@@ -610,12 +719,124 @@ MSMPrepareComposite(int op, PicturePtr pSrcPicture, PicturePtr pMaskPicture,
  * This call is required if PrepareComposite() ever succeeds.
  */
 static void
-MSMComposite(PixmapPtr pDst, int srcX, int srcY, int maskX, int maskY,
+MSMComposite(PixmapPtr pDstPixmap, int srcX, int srcY, int maskX, int maskY,
 		int dstX, int dstY, int width, int height)
 {
-	MSM_LOCALS(pDst);
+	MSM_LOCALS(pDstPixmap);
+	PixmapPtr pSrcPixmap = exa->src;
+	struct msm_drm_bo *dst_bo = msm_get_pixmap_bo(pDstPixmap);
+	struct msm_drm_bo *src_bo = msm_get_pixmap_bo(pSrcPixmap);
+	uint32_t dw, dh, dp, sw, sh, sp;
+
+	dw = pDstPixmap->drawable.width;
+	dh = pDstPixmap->drawable.height;
+	sw = pSrcPixmap->drawable.width;
+	sh = pSrcPixmap->drawable.height;
+
+	/* pitch specified in units of 32 bytes, it appears.. not quite sure
+	 * max size yet, but I think 11 or 12 bits..
+	 */
+	dp = (msm_pixmap_get_pitch(pDstPixmap) / 32) & 0xfff;
+	sp = (msm_pixmap_get_pitch(pSrcPixmap) / 32) & 0xfff;
+
+
 	TRACE_EXA("srcX=%d\tsrcY=%d\tmaskX=%d\tmaskY=%d\tdstX=%d\tdstY=%d\twidth=%d\theight=%d",
 			srcX, srcY, maskX, maskY, dstX, dstY, width, height);
+
+	BEGIN_RING(ring, 45);		// XXX check size
+	OUT_RING  (ring, 0x0c000000);
+	OUT_RING  (ring, 0x11000000);
+	OUT_RING  (ring, 0xd0030000);
+	/* setup for dst parameters: */
+	OUT_RING  (ring, 0xd2000000 | (((dh * 2) & 0xfff) << 12) | (dw & 0xfff));
+	//if (dst == A8) {
+	//0100e000 | dp
+	//} else if ((dst == xRGB) || (dst == ARGB)) {
+	//01007000 | dp
+	//}
+	OUT_RING  (ring, 0x7c000100);
+	OUT_RELOC (ring, dst_bo);
+	OUT_RING  (ring, 0x7c0001d3);
+	OUT_RELOC (ring, dst_bo);
+	OUT_RING  (ring, 0x7c0001d1);
+	//if (dst == A8) {
+	//4000e000 | dp
+	//} else if ((dst == xRGB) || (dst == ARGB)) {
+	//40007000 | dp
+	//}
+	OUT_RING  (ring, 0xd5000000);
+	/* from here, dst params differ from solid: */
+	OUT_RING  (ring, 0x0c000000);
+	OUT_RING  (ring, 0x08000000 | ((dw - 1) & 0xfff) << 12);
+	OUT_RING  (ring, 0x09000000 | ((dh - 1) & 0xfff) << 12);
+
+	//if (dst == xRGB) {
+	//7c00020a
+	//ff000000
+	//ff000000
+	//7c0001b2
+	//ff000000
+	//} else if ((dst == ARGB) || (dst == A8)) {
+	//0a000000
+	//0b000000
+	//}
+
+	//if (!src_has_alpha) {
+	//7c0001b0
+	//ff000000
+	//}
+
+// XXX XXX XXX XXX
+//	OUT_RING  (ring, 0x7c000114);  // XXX this is not always present!!s
+//	OUT_RING  (ring, exa->op_dwords[0]);
+//	if (exa->op_dwords[1])
+//		OUT_RING(ring, exa->op_dwords[1]);
+//	// XXX 3rd dword varies.. depending on whether src has alpha?? check if there is a pattern!
+//	OUT_RING  (ring, exa->op_dwords[2]);
+
+
+	OUT_RING  (ring, 0x110000e0);
+	OUT_RING  (ring, 0xd0000000);
+	OUT_RING  (ring, 0x7c0003d1);
+	/* setup of src parameters: */
+	//if (src == xRGB) {
+	//40007000 | sp
+	//} else if (src == ARGB) {
+	//42007000 | sp
+	//} else if (src == A8) {
+	//4200e000 | sp
+	//}
+
+	/* possibly width/height are 13 bits.. this is similar to  dst params
+	 * in copy and solid width the 'd2' in high byte.. low bit of d2 is
+	 * '0' which would support the 13 bit sizes theory:
+	 * TODO add some tests to confirm w/h size theory
+	 */
+	OUT_RING  (ring, (((sh * 2) & 0xfff) << 12) | (sw & 0xfff));
+	OUT_RELOC (ring, src_bo);
+	OUT_RING  (ring, 0xd5000000);
+	OUT_RING  (ring, 0xd0000000);
+	OUT_RING  (ring, 0x0f00000a);
+	OUT_RING  (ring, 0x0f00000a);
+	OUT_RING  (ring, 0x0f00000a);
+	OUT_RING  (ring, 0x0f00000a);
+	OUT_RING  (ring, 0xd0000000);
+	OUT_RING  (ring, 0x0f00000a);
+	OUT_RING  (ring, 0x0f00000a);
+	OUT_RING  (ring, 0x0f00000a);
+	OUT_RING  (ring, 0x0e000003);    // XXX differs from copy, ..03 vs ..02
+	OUT_RING  (ring, 0x7c0003f0);
+	OUT_RING  (ring, (dstX & 0xffff) << 16 | (dstY & 0xffff));
+	OUT_RING  (ring, (width & 0xfff) << 16 | (height & 0xffff));
+	OUT_RING  (ring, (srcX & 0xffff) << 16 | (srcY & 0xffff));
+	OUT_RING  (ring, 0xd0000000);
+	OUT_RING  (ring, 0xd0000000);
+	OUT_RING  (ring, 0xd0000000);
+	OUT_RING  (ring, 0xd0000000);
+	OUT_RING  (ring, 0xd0000000);
+	OUT_RING  (ring, 0xd0000000);
+	END_RING  (ring);
+
 }
 
 /**
