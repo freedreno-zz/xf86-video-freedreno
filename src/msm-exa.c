@@ -69,21 +69,16 @@ struct exa_state {
 	uint32_t fill;
 
 	/* copy/composite state: */
-	uint32_t *op_dwords;
+	const uint32_t *op_dwords;
 	PixmapPtr src, mask;
 	PicturePtr dstpic, srcpic, maskpic;
 };
 
-/* TODO possibly there is a single worst-case encoding that uses same
- * number of dwords, similarly to blit coords which can be encoded
- * using variable # of dwords depending on # of bits needed to
- * represent the value??
- *
- * NOTE: the ones with only two dwords have Fb=0
+/* NOTE ARGB and A8 seem to be treated the same when it comes to the
+ * composite-op dwords:
  */
-#if 0
-// xRGB->xRGB
-static const uint32_t composite_op_dwords[][4] = {
+static const uint32_t composite_op_dwords[4][PictOpAdd+1][4] = {
+	{ /* xRGB->xRGB */
 		[PictOpSrc]          = { 0x7c000114, 0x10002010, 0x00000000, 0x18012210 },
 		[PictOpIn]           = { 0x7c000114, 0xb0100004, 0x00000000, 0x18110a04 },
 		[PictOpOut]          = { 0x7c000114, 0xb0102004, 0x00000000, 0x18112a04 },
@@ -95,39 +90,8 @@ static const uint32_t composite_op_dwords[][4] = {
 		[PictOpAtop]         = { 0x7c000114, 0xf0908004, 0x7c000118, 0xa0918a04 },
 		[PictOpAtopReverse]  = { 0x7c000114, 0xf0902004, 0x7c000118, 0xa0912a04 },
 		[PictOpXor]          = { 0x7c000114, 0xf090a004, 0x7c000118, 0xa091aa04 },
-};
-// ARGB->ARGB
-static const uint32_t composite_op_dwords[][4] = {
-		[PictOpSrc]          = { 0x00000000, 0x14012010, 0x00000000, 0x18012210 },
-		[PictOpIn]           = { 0x00000000, 0x14110004, 0x00000000, 0x18110a04 },
-		[PictOpOut]          = { 0x00000000, 0x14112004, 0x00000000, 0x18112a04 },
-		[PictOpOver]         = { 0x7c000114, 0x0281a004, 0x7c000118, 0x0281aa04 },
-		[PictOpOutReverse]   = { 0x7c000114, 0x02808040, 0x7c000118, 0x02808840 },
-		[PictOpAdd]          = { 0x00000000, 0x1481a004, 0x00000000, 0x18898204 },
-		[PictOpOverReverse]  = { 0x00000000, 0x1491a004, 0x00000000, 0x1891a204 },
-		[PictOpInReverse]    = { 0x7c000114, 0x02800040, 0x7c000118, 0x02800840 },
-		[PictOpAtop]         = { 0x7c000114, 0x02918004, 0x7c000118, 0x02918a04 },
-		[PictOpAtopReverse]  = { 0x7c000114, 0x02912004, 0x7c000118, 0x02912a04 },
-		[PictOpXor]          = { 0x7c000114, 0x0291a004, 0x7c000118, 0x0291aa04 },
-};
-// A8->A8 same as ARGB->ARGB (I guess A8 is expanded to ARGB internally?)
-// ARGB->xRGB
-static const uint32_t composite_op_dwords[][4] = {
-		[PictOpSrc]          = { 0x00000000, 0x14012010, 0x00000000, 0x18012210 },
-		[PictOpIn]           = { 0x7c000114, 0x20110004, 0x00000000, 0x18110a04 },
-		[PictOpOut]          = { 0x7c000114, 0x20112004, 0x00000000, 0x18112a04 },
-		[PictOpOver]         = { 0x7c000114, 0x4281a004, 0x7c000118, 0x0281aa04 },
-		[PictOpOutReverse]   = { 0x7c000114, 0x02808040, 0x7c000118, 0x02808840 },
-		[PictOpAdd]          = { 0x7c000114, 0x4081a004, 0x00000000, 0x18898204 },
-		[PictOpOverReverse]  = { 0x7c000114, 0x6091a004, 0x7c000118, 0x2091a204 },
-		[PictOpInReverse]    = { 0x7c000114, 0x02800040, 0x7c000118, 0x02800840 },
-		[PictOpAtop]         = { 0x7c000114, 0x62918004, 0x7c000118, 0x22918a04 },
-		[PictOpAtopReverse]  = { 0x7c000114, 0x62912004, 0x7c000118, 0x22912a04 },
-		[PictOpXor]          = { 0x7c000114, 0x6291a004, 0x7c000118, 0x2291aa04 },
-};
-// A8->xRGB same as ARGB->xRGB
-// xRGB->ARGB
-static const uint32_t composite_op_dwords[][4] = {
+	},
+	{ /* xRGB->ARGB, xRGB->A8 */
 		[PictOpSrc]          = { 0x7c000114, 0x10002010, 0x00000000, 0x18012210 },
 		[PictOpIn]           = { 0x7c000114, 0x90100004, 0x00000000, 0x18110a04 },
 		[PictOpOut]          = { 0x7c000114, 0x90102004, 0x00000000, 0x18112a04 },
@@ -139,9 +103,34 @@ static const uint32_t composite_op_dwords[][4] = {
 		[PictOpAtop]         = { 0x7c000114, 0x90908004, 0x7c000118, 0x80918a04 },
 		[PictOpAtopReverse]  = { 0x7c000114, 0x90902004, 0x7c000118, 0x80912a04 },
 		[PictOpXor]          = { 0x7c000114, 0x9090a004, 0x7c000118, 0x8091aa04 },
+	},
+	{ /* ARGB->xRGB, A8->xRGB */
+		[PictOpSrc]          = { 0x00000000, 0x14012010, 0x00000000, 0x18012210 },
+		[PictOpIn]           = { 0x7c000114, 0x20110004, 0x00000000, 0x18110a04 },
+		[PictOpOut]          = { 0x7c000114, 0x20112004, 0x00000000, 0x18112a04 },
+		[PictOpOver]         = { 0x7c000114, 0x4281a004, 0x7c000118, 0x0281aa04 },
+		[PictOpOutReverse]   = { 0x7c000114, 0x02808040, 0x7c000118, 0x02808840 },
+		[PictOpAdd]          = { 0x7c000114, 0x4081a004, 0x00000000, 0x18898204 },
+		[PictOpOverReverse]  = { 0x7c000114, 0x6091a004, 0x7c000118, 0x2091a204 },
+		[PictOpInReverse]    = { 0x7c000114, 0x02800040, 0x7c000118, 0x02800840 },
+		[PictOpAtop]         = { 0x7c000114, 0x62918004, 0x7c000118, 0x22918a04 },
+		[PictOpAtopReverse]  = { 0x7c000114, 0x62912004, 0x7c000118, 0x22912a04 },
+		[PictOpXor]          = { 0x7c000114, 0x6291a004, 0x7c000118, 0x2291aa04 },
+	},
+	{ /* ARGB->ARGB, A8->A8 */
+		[PictOpSrc]          = { 0x00000000, 0x14012010, 0x00000000, 0x18012210 },
+		[PictOpIn]           = { 0x00000000, 0x14110004, 0x00000000, 0x18110a04 },
+		[PictOpOut]          = { 0x00000000, 0x14112004, 0x00000000, 0x18112a04 },
+		[PictOpOver]         = { 0x7c000114, 0x0281a004, 0x7c000118, 0x0281aa04 },
+		[PictOpOutReverse]   = { 0x7c000114, 0x02808040, 0x7c000118, 0x02808840 },
+		[PictOpAdd]          = { 0x00000000, 0x1481a004, 0x00000000, 0x18898204 },
+		[PictOpOverReverse]  = { 0x00000000, 0x1491a004, 0x00000000, 0x1891a204 },
+		[PictOpInReverse]    = { 0x7c000114, 0x02800040, 0x7c000118, 0x02800840 },
+		[PictOpAtop]         = { 0x7c000114, 0x02918004, 0x7c000118, 0x02918a04 },
+		[PictOpAtopReverse]  = { 0x7c000114, 0x02912004, 0x7c000118, 0x02912a04 },
+		[PictOpXor]          = { 0x7c000114, 0x0291a004, 0x7c000118, 0x0291aa04 },
+	},
 };
-// xRGB->A8 same as xRGB->A8
-#endif
 
 #if 0
 /* Get the length of the vector represented by (x,y) */
@@ -418,7 +407,11 @@ MSMPrepareCopy(PixmapPtr pSrcPixmap, PixmapPtr pDstPixmap, int dx, int dy,
 {
 	MSM_LOCALS(pDstPixmap);
 
-	TRACE_EXA("%p <- %p", pDstPixmap, pSrcPixmap);
+	TRACE_EXA("%p {%dx%d,%d} <- %p {%dx%d,%d}",
+			pDstPixmap, pDstPixmap->drawable.width,
+			pDstPixmap->drawable.height, pDstPixmap->devKind,
+			pSrcPixmap, pSrcPixmap->drawable.width,
+			pSrcPixmap->drawable.height, pSrcPixmap->devKind);
 
 	EXA_FAIL_IF(planemask != FB_ALLONES);
 	EXA_FAIL_IF(alu != GXcopy);
@@ -496,8 +489,8 @@ MSMCopy(PixmapPtr pDstPixmap, int srcX, int srcY, int dstX, int dstY,
 	OUT_RING  (ring, 0xd5000000);
 	/* from here, dst params differ from solid: */
 	OUT_RING  (ring, 0x0c000000);
-	OUT_RING  (ring, 0x08000000 | ((dw - 1) & 0xfff) << 12);  // XXX
-	OUT_RING  (ring, 0x09000000 | ((dh - 1) & 0xfff) << 12);  // XXX
+	OUT_RING  (ring, 0x08000000 | ((dw - 1) & 0xfff) << 12);
+	OUT_RING  (ring, 0x09000000 | ((dh - 1) & 0xfff) << 12);
 	OUT_RING  (ring, 0x7c00020a);
 	OUT_RING  (ring, 0xff000000);
 	OUT_RING  (ring, 0xff000000);
@@ -515,9 +508,9 @@ MSMCopy(PixmapPtr pDstPixmap, int srcX, int srcY, int dstX, int dstY,
 	OUT_RELOC (ring, src_bo);
 	OUT_RING  (ring, 0xd5000000);
 	OUT_RING  (ring, 0xd0000000);
-	OUT_RING  (ring, 0x0f00000a);    // XXX these differ between identical blits
-	OUT_RING  (ring, 0x0f00000a);    // XXX these differ between identical blits
-	OUT_RING  (ring, 0x0f00000a);    // XXX these differ between identical blits
+	OUT_RING  (ring, 0x0f00000a);
+	OUT_RING  (ring, 0x0f00000a);
+	OUT_RING  (ring, 0x0f00000a);
 	OUT_RING  (ring, 0x0f00000a);
 	OUT_RING  (ring, 0xd0000000);
 	OUT_RING  (ring, 0x0f00000a);
@@ -588,6 +581,7 @@ MSMCheckComposite(int op, PicturePtr pSrcPicture, PicturePtr pMaskPicture,
 		PicturePtr pDstPicture)
 {
 	MSM_LOCALS(pDstPicture->pDrawable);
+	int idx = 0;
 
 	TRACE_EXA("op:%02d: %p {%08x, %d} <- %p {%08x, %d} (%p {%08x, %d})", op,
 			pDstPicture, pDstPicture->format, pDstPicture->repeat,
@@ -595,7 +589,25 @@ MSMCheckComposite(int op, PicturePtr pSrcPicture, PicturePtr pMaskPicture,
 			pMaskPicture, pMaskPicture ? pMaskPicture->format : 0,
 			pMaskPicture ? pMaskPicture->repeat : 0);
 
+	// TODO proper handling for RGB vs BGR!
+
+	EXA_FAIL_IF((pDstPicture->format != PICT_a8r8g8b8) &&
+			(pDstPicture->format != PICT_a8b8g8r8) &&
+			(pDstPicture->format != PICT_x8r8g8b8) &&
+			(pDstPicture->format != PICT_x8b8g8r8) &&
+			(pDstPicture->format != PICT_a8));
+	EXA_FAIL_IF((pSrcPicture->format != PICT_a8r8g8b8) &&
+			(pSrcPicture->format != PICT_a8b8g8r8) &&
+			(pSrcPicture->format != PICT_x8r8g8b8) &&
+			(pSrcPicture->format != PICT_x8b8g8r8) &&
+			(pSrcPicture->format != PICT_a8));
+
 	if (pMaskPicture) {
+		EXA_FAIL_IF((pMaskPicture->format != PICT_a8r8g8b8) &&
+				(pMaskPicture->format != PICT_a8b8g8r8) &&
+				(pMaskPicture->format != PICT_x8r8g8b8) &&
+				(pMaskPicture->format != PICT_x8b8g8r8) &&
+				(pMaskPicture->format != PICT_a8));
 		EXA_FAIL_IF(pMaskPicture->transform);
 		EXA_FAIL_IF(pMaskPicture->repeat);
 		/* this doesn't appear to be supported by libC2D2.. although
@@ -609,15 +621,21 @@ MSMCheckComposite(int op, PicturePtr pSrcPicture, PicturePtr pMaskPicture,
 	EXA_FAIL_IF(pSrcPicture->transform);
 	EXA_FAIL_IF(pSrcPicture->repeat);
 
-	// TODO mask
-	EXA_FAIL_IF(pMaskPicture);
+	if (PICT_FORMAT_A(pSrcPicture->format))
+		idx += 2;
+	if (PICT_FORMAT_A(pDstPicture->format))
+		idx += 1;
 
-	EXA_FAIL_IF((op >= ARRAY_SIZE(composite_op_dwords)) ||
-			!composite_op_dwords[op][0]);
+	/* check for unsupported op: */
+	EXA_FAIL_IF((op >= ARRAY_SIZE(composite_op_dwords[idx])) ||
+			!composite_op_dwords[idx][op][1]);
 
 	// TODO anything we need to reject early?
 
-	exa->op_dwords = composite_op_dwords[op];
+	// TODO figure out a way to deal w/ maskX/maskY.. for now reject mask:
+	EXA_FAIL_IF(pMaskPicture);
+
+	exa->op_dwords = composite_op_dwords[idx][op];
 	exa->dstpic    = pDstPicture;
 	exa->srcpic    = pSrcPicture;
 	exa->maskpic   = pMaskPicture;
@@ -687,7 +705,11 @@ MSMPrepareComposite(int op, PicturePtr pSrcPicture, PicturePtr pMaskPicture,
 {
 	MSM_LOCALS(pDst);
 
-	TRACE_EXA("%p <- %p (%p)", pDst, pSrc, pMask);
+	TRACE_EXA("%p {%dx%d,%d} <- %p {%dx%d,%d} (%p {%dx%d,%d})",
+			pDst, pDst->drawable.width, pDst->drawable.height, pDst->devKind,
+			pSrc, pSrc->drawable.width, pSrc->drawable.height, pSrc->devKind,
+			pMask, pMask ? pMask->drawable.width : 0, pMask ? pMask->drawable.height : 0,
+			pMask ? pMask->devKind : 0);
 
 	// TODO revisit repeat..
 	EXA_FAIL_IF(pSrcPicture->repeat &&
@@ -761,20 +783,20 @@ MSMComposite(PixmapPtr pDstPixmap, int srcX, int srcY, int maskX, int maskY,
 	TRACE_EXA("srcX=%d\tsrcY=%d\tmaskX=%d\tmaskY=%d\tdstX=%d\tdstY=%d\twidth=%d\theight=%d",
 			srcX, srcY, maskX, maskY, dstX, dstY, width, height);
 
-	BEGIN_RING(ring, 45);		// XXX check size
+	BEGIN_RING(ring, 59);
 	OUT_RING  (ring, 0x0c000000);
 	OUT_RING  (ring, 0x11000000);
 	OUT_RING  (ring, 0xd0030000);
 	/* setup for dst parameters: */
 	// TODO check if 13 bit
 	OUT_RING  (ring, 0xd2000000 | (((dh * 2) & 0xfff) << 12) | (dw & 0xfff));
-	OUT_RING  (ring, 0x40000000 | dp | (pDstPixmap->drawable.depth == 8) ? 0xe000 : 0x7000);
+	OUT_RING  (ring, 0x01000000 | dp | ((pDstPixmap->drawable.depth == 8) ? 0xe000 : 0x7000));
 	OUT_RING  (ring, 0x7c000100);
 	OUT_RELOC (ring, dst_bo);
 	OUT_RING  (ring, 0x7c0001d3);
 	OUT_RELOC (ring, dst_bo);
 	OUT_RING  (ring, 0x7c0001d1);
-	OUT_RING  (ring, 0x40000000 | dp | (pDstPixmap->drawable.depth == 8) ? 0xe000 : 0x7000);
+	OUT_RING  (ring, 0x40000000 | dp | ((pDstPixmap->drawable.depth == 8) ? 0xe000 : 0x7000));
 	OUT_RING  (ring, 0xd5000000);
 	/* from here, dst params differ from solid: */
 	OUT_RING  (ring, 0x0c000000);
@@ -797,20 +819,18 @@ MSMComposite(PixmapPtr pDstPixmap, int srcX, int srcY, int maskX, int maskY,
 		OUT_RING(ring, 0xff000000);
 	}
 
-// XXX XXX XXX XXX
-//	OUT_RING  (ring, 0x7c000114);  // XXX this is not always present!!s
-//	OUT_RING  (ring, exa->op_dwords[0]);
-//	if (exa->op_dwords[1])
-//		OUT_RING(ring, exa->op_dwords[1]);
-//	// XXX 3rd dword varies.. depending on whether src has alpha?? check if there is a pattern!
-//	OUT_RING  (ring, exa->op_dwords[2]);
+	if (exa->op_dwords[0])
+		OUT_RING(ring, exa->op_dwords[0]);
+	OUT_RING(ring, exa->op_dwords[1]);
+	if (exa->op_dwords[2])
+		OUT_RING(ring, exa->op_dwords[2]);
+	OUT_RING(ring, exa->op_dwords[3]);
 
-
-	OUT_RING  (ring, 0x11000060 | (pMaskPixmap ? 0 : 0x80));
+	OUT_RING  (ring, 0x11000060 | (pMaskPixmap ? 0 : 0x80) | (PICT_FORMAT_A(exa->dstpic->format) ? 0 : 0x00200000));
 	OUT_RING  (ring, 0xd0000000);
 	OUT_RING  (ring, 0x7c0003d1);
 	/* setup of src parameters: */
-	OUT_RING  (ring, 0x40000000 | sp | (pSrcPixmap->drawable.depth == 8) ? 0xe000 : 0x7000);
+	OUT_RING  (ring, 0x40000000 | sp | ((pSrcPixmap->drawable.depth == 8) ? 0xe000 : 0x7000));
 	// TODO check if 13 bit
 	OUT_RING  (ring, (((sh * 2) & 0xfff) << 12) | (sw & 0xfff));
 	OUT_RELOC (ring, src_bo);
@@ -823,7 +843,7 @@ MSMComposite(PixmapPtr pDstPixmap, int srcX, int srcY, int maskX, int maskY,
 		 */
 		OUT_RING (ring, 0xd0020000);
 		OUT_RING (ring, 0x7c0003d1);
-		OUT_RING (ring, 0x40000000 | mp | (pMaskPixmap->drawable.depth == 8) ? 0xe000 : 0x7000);
+		OUT_RING (ring, 0x40000000 | mp | ((pMaskPixmap->drawable.depth == 8) ? 0xe000 : 0x7000));
 		// TODO check if 13 bit
 		OUT_RING  (ring, (((mh * 2) & 0xfff) << 12) | (mw & 0xfff));
 		OUT_RELOC(ring, mask_bo);
