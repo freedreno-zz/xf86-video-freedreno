@@ -215,6 +215,70 @@ transform_get_rotate(PictTransform *t, double *d)
 }
 #endif
 
+static inline void
+out_dstpix(struct kgsl_ringbuffer *ring, PixmapPtr pix)
+{
+	struct msm_drm_bo *bo = msm_get_pixmap_bo(pix);
+	uint32_t w, h, p;
+
+	w = pix->drawable.width;
+	h = pix->drawable.height;
+
+	/* pitch specified in units of 32 bytes, it appears.. not quite sure
+	 * max size yet, but I think 11 or 12 bits..
+	 */
+	p = (msm_pixmap_get_pitch(pix) / 32) & 0xfff;
+
+	/* not quite sure if these first three dwords belong here, but all
+	 * blits seem to start with these immediately before the dst surf
+	 * parameters, so I'm putting them here for now
+	 *
+	 * Note that there are some similar dwords preceding src surf state
+	 * although it varies slightly for composite (some extra bits set
+	 * for src surface and no 0x11000000 like dword for mask surface..
+	 * so this may need some shuffling around when I start playing with
+	 * emitting dst/src/mask surf state in the corresponding Prepare
+	 * fxns rather than for every blit..
+	 */
+	OUT_RING (ring, 0x0c000000);
+	OUT_RING (ring, 0x11000000);
+	OUT_RING (ring, 0xd0030000);
+	// TODO check if 13 bit
+	OUT_RING (ring, 0xd2000000 | ((h & 0xfff) << 13) | (w & 0xfff));
+	OUT_RING (ring, 0x01000000 | p |
+			((pix->drawable.depth == 8) ? 0xe000 : 0x7000));
+	OUT_RING (ring, 0x7c000100);
+	OUT_RELOC(ring, bo);
+	OUT_RING (ring, 0x7c0001d3);
+	OUT_RELOC(ring, bo);
+	OUT_RING (ring, 0x7c0001d1);
+	OUT_RING (ring, 0x40000000 | p |
+			((pix->drawable.depth == 8) ? 0xe000 : 0x7000));
+	OUT_RING (ring, 0xd5000000);
+}
+
+static inline void
+out_srcpix(struct kgsl_ringbuffer *ring, PixmapPtr pix)
+{
+	struct msm_drm_bo *bo = msm_get_pixmap_bo(pix);
+	uint32_t w, h, p;
+
+	w = pix->drawable.width;
+	h = pix->drawable.height;
+
+	/* pitch specified in units of 32 bytes, it appears.. not quite sure
+	 * max size yet, but I think 11 or 12 bits..
+	 */
+	p = (msm_pixmap_get_pitch(pix) / 32) & 0xfff;
+
+	OUT_RING (ring, 0x7c0003d1);
+	OUT_RING (ring, 0x40000000 | p |
+			((pix->drawable.depth == 8) ? 0xe000 : 0x7000));
+	// TODO check if 13 bit
+	OUT_RING (ring, ((h & 0xfff) << 13) | (w & 0xfff));
+	OUT_RELOC(ring, bo);
+}
+
 /**
  * PrepareSolid() sets up the driver for doing a solid fill.
  * @param pPixmap Destination pixmap
@@ -287,69 +351,23 @@ static void
 MSMSolid(PixmapPtr pPixmap, int x1, int y1, int x2, int y2)
 {
 	MSM_LOCALS(pPixmap);
-	struct msm_drm_bo *dst_bo = msm_get_pixmap_bo(pPixmap);
-	uint32_t w, h, p;
-
-	w = pPixmap->drawable.width;
-	h = pPixmap->drawable.height;
-
-	/* pitch specified in units of 32 bytes, it appears.. not quite sure
-	 * max size yet, but I think 11 or 12 bits..
-	 */
-	p = (msm_pixmap_get_pitch(pPixmap) / 32) & 0xfff;
 
 	TRACE_EXA("x1=%d\ty1=%d\tx2=%d\ty2=%d", x1, y1, x2, y2);
 
 	BEGIN_RING(ring, 23);
-	OUT_RING  (ring, 0x0c000000);
-	OUT_RING  (ring, 0x11000000);
-	OUT_RING  (ring, 0xd0030000);
-	OUT_RING  (ring, 0xd2000000 | (((h * 2) & 0xfff) << 12) | (w & 0xfff));   // [1]
-	OUT_RING  (ring, 0x01007000 | p);
-	OUT_RING  (ring, 0x7c000100);
-	OUT_RELOC (ring, dst_bo);
-	OUT_RING  (ring, 0x7c0001d3);
-	OUT_RELOC (ring, dst_bo);
-	OUT_RING  (ring, 0x7c0001d1);
-	OUT_RING  (ring, 0x40007000 | p);
-	OUT_RING  (ring, 0xd5000000);
+	out_dstpix(ring, pPixmap);
 	OUT_RING  (ring, 0x08000000 | ((x2 & 0xfff) << 12) | (x1 & 0xfff));
 	OUT_RING  (ring, 0x09000000 | ((y2 & 0xfff) << 12) | (y1 & 0xfff));
-	OUT_RING  (ring, 0x0f000000);                                             // [2]
-	OUT_RING  (ring, 0x0f000000);                                             // [2]
-	OUT_RING  (ring, 0x0f000001);                                             // [2]
+	OUT_RING  (ring, 0x0f000000);
+	OUT_RING  (ring, 0x0f000000);
+	OUT_RING  (ring, 0x0f000001);
 	OUT_RING  (ring, 0x0e000000);
-#if 0
-	/* there seem to be 3 ways to encode bx/by/bw/bh depending on which
-	 * are greater than 0xff.. seems like we can ignore this and always
-	 * encode worst case..
-	 */
-	if ((x1 > 0xff) || (y1 > 0xff)) {
-		OUT_RING(ring, 0x7c0002f0);
-		OUT_RING(ring, ((x1 & 0xffff) << 16) | (y1 & 0xffff));
-		OUT_RING(ring, (((x2 - x1) & 0xffff) << 16) | ((y2 - y1) & 0xffff));
-	} else if (((x2 - x1) > 0xff) || ((y2 - y1) > 0xff)) {
-		OUT_RING(ring, 0xf0000000 | (x1 << 16) | y1);
-		OUT_RING(ring, 0x7c0001f1);
-		OUT_RING(ring, (((x2 - x1) & 0xffff) << 16) | ((y2 - y1) & 0xffff));
-	} else {
-		OUT_RING(ring, 0xf0000000 | (x1 << 16) | y1);
-		OUT_RING(ring, 0xf1000000 | ((x2 - x1) << 16) | (y2 - y1));
-	}
-#else
-	OUT_RING(ring, 0x7c0002f0);
-	OUT_RING(ring, ((x1 & 0xffff) << 16) | (y1 & 0xffff));
-	OUT_RING(ring, (((x2 - x1) & 0xffff) << 16) | ((y2 - y1) & 0xffff));
-#endif
+	OUT_RING  (ring, 0x7c0002f0);
+	OUT_RING  (ring, ((x1 & 0xffff) << 16) | (y1 & 0xffff));
+	OUT_RING  (ring, (((x2 - x1) & 0xffff) << 16) | ((y2 - y1) & 0xffff));
 	OUT_RING  (ring, 0x7c0001ff);
 	OUT_RING  (ring, exa->fill);
 	END_RING  (ring);
-
-	/* Notes:
-	 *  [1] not sure why it is h*2.. maybe it is shifted extra bit over?
-	 *  [2] these appear to differ even between two identical blits.. maybe
-	 *      they are random garbage?
-	 */
 }
 
 /**
@@ -455,39 +473,16 @@ MSMCopy(PixmapPtr pDstPixmap, int srcX, int srcY, int dstX, int dstY,
 {
 	MSM_LOCALS(pDstPixmap);
 	PixmapPtr pSrcPixmap = exa->src;
-	struct msm_drm_bo *dst_bo = msm_get_pixmap_bo(pDstPixmap);
-	struct msm_drm_bo *src_bo = msm_get_pixmap_bo(pSrcPixmap);
-	uint32_t dw, dh, dp, sw, sh, sp;
+	uint32_t dw, dh;
 
 	dw = pDstPixmap->drawable.width;
 	dh = pDstPixmap->drawable.height;
-	sw = pSrcPixmap->drawable.width;
-	sh = pSrcPixmap->drawable.height;
-
-	/* pitch specified in units of 32 bytes, it appears.. not quite sure
-	 * max size yet, but I think 11 or 12 bits..
-	 */
-	dp = (msm_pixmap_get_pitch(pDstPixmap) / 32) & 0xfff;
-	sp = (msm_pixmap_get_pitch(pSrcPixmap) / 32) & 0xfff;
 
 	TRACE_EXA("srcX=%d\tsrcY=%d\tdstX=%d\tdstY=%d\twidth=%d\theight=%d",
 			srcX, srcY, dstX, dstY, width, height);
 
 	BEGIN_RING(ring, 45);
-	OUT_RING  (ring, 0x0c000000);
-	OUT_RING  (ring, 0x11000000);
-	OUT_RING  (ring, 0xd0030000);
-	/* setup for dst parameters appears similar to solid: */
-	OUT_RING  (ring, 0xd2000000 | (((dh * 2) & 0xfff) << 12) | (dw & 0xfff));
-	OUT_RING  (ring, 0x01007000 | dp);
-	OUT_RING  (ring, 0x7c000100);
-	OUT_RELOC (ring, dst_bo);
-	OUT_RING  (ring, 0x7c0001d3);
-	OUT_RELOC (ring, dst_bo);
-	OUT_RING  (ring, 0x7c0001d1);
-	OUT_RING  (ring, 0x40007000 | dp);
-	OUT_RING  (ring, 0xd5000000);
-	/* from here, dst params differ from solid: */
+	out_dstpix(ring, pDstPixmap);
 	OUT_RING  (ring, 0x0c000000);
 	OUT_RING  (ring, 0x08000000 | ((dw - 1) & 0xfff) << 12);
 	OUT_RING  (ring, 0x09000000 | ((dh - 1) & 0xfff) << 12);
@@ -496,16 +491,7 @@ MSMCopy(PixmapPtr pDstPixmap, int srcX, int srcY, int dstX, int dstY,
 	OUT_RING  (ring, 0xff000000);
 	OUT_RING  (ring, 0x11000000);
 	OUT_RING  (ring, 0xd0000000);
-	OUT_RING  (ring, 0x7c0003d1);
-	/* setup of src parameters: */
-	OUT_RING  (ring, 0x40007000 | sp);
-	/* possibly width/height are 13 bits.. this is similar to  dst params
-	 * in copy and solid width the 'd2' in high byte.. low bit of d2 is
-	 * '0' which would support the 13 bit sizes theory:
-	 * TODO add some tests to confirm w/h size theory
-	 */
-	OUT_RING  (ring, (((sh * 2) & 0xfff) << 12) | (sw & 0xfff));
-	OUT_RELOC (ring, src_bo);
+	out_srcpix(ring, pSrcPixmap);
 	OUT_RING  (ring, 0xd5000000);
 	OUT_RING  (ring, 0xd0000000);
 	OUT_RING  (ring, 0x0f00000a);
@@ -517,9 +503,6 @@ MSMCopy(PixmapPtr pDstPixmap, int srcX, int srcY, int dstX, int dstY,
 	OUT_RING  (ring, 0x0f00000a);
 	OUT_RING  (ring, 0x0f00000a);
 	OUT_RING  (ring, 0x0e000002);
-	/* again, like solid, there seems to be multiple ways to encode the coords,
-	 * depending on the size but I think we can go wit worst-case:
-	 */
 	OUT_RING  (ring, 0x7c0003f0);
 	OUT_RING  (ring, (dstX & 0xffff) << 16 | (dstY & 0xffff));
 	OUT_RING  (ring, (width & 0xfff) << 16 | (height & 0xffff));
@@ -757,48 +740,16 @@ MSMComposite(PixmapPtr pDstPixmap, int srcX, int srcY, int maskX, int maskY,
 	MSM_LOCALS(pDstPixmap);
 	PixmapPtr pSrcPixmap = exa->src;
 	PixmapPtr pMaskPixmap = exa->mask;
-	struct msm_drm_bo *dst_bo = msm_get_pixmap_bo(pDstPixmap);
-	struct msm_drm_bo *src_bo = msm_get_pixmap_bo(pSrcPixmap);
-	struct msm_drm_bo *mask_bo = NULL;
-	uint32_t dw, dh, dp, sw, sh, sp, mw, mh, mp;
+	uint32_t dw, dh;
 
 	dw = pDstPixmap->drawable.width;
 	dh = pDstPixmap->drawable.height;
-	sw = pSrcPixmap->drawable.width;
-	sh = pSrcPixmap->drawable.height;
-
-	/* pitch specified in units of 32 bytes, it appears.. not quite sure
-	 * max size yet, but I think 11 or 12 bits..
-	 */
-	dp = (msm_pixmap_get_pitch(pDstPixmap) / 32) & 0xfff;
-	sp = (msm_pixmap_get_pitch(pSrcPixmap) / 32) & 0xfff;
-
-	if (pMaskPixmap) {
-		mask_bo = msm_get_pixmap_bo(pMaskPixmap);
-		mw = pMaskPixmap->drawable.width;
-		mh = pMaskPixmap->drawable.height;
-		mp = (msm_pixmap_get_pitch(pMaskPixmap) / 32) & 0xfff;
-	}
 
 	TRACE_EXA("srcX=%d\tsrcY=%d\tmaskX=%d\tmaskY=%d\tdstX=%d\tdstY=%d\twidth=%d\theight=%d",
 			srcX, srcY, maskX, maskY, dstX, dstY, width, height);
 
 	BEGIN_RING(ring, 59);
-	OUT_RING  (ring, 0x0c000000);
-	OUT_RING  (ring, 0x11000000);
-	OUT_RING  (ring, 0xd0030000);
-	/* setup for dst parameters: */
-	// TODO check if 13 bit
-	OUT_RING  (ring, 0xd2000000 | (((dh * 2) & 0xfff) << 12) | (dw & 0xfff));
-	OUT_RING  (ring, 0x01000000 | dp | ((pDstPixmap->drawable.depth == 8) ? 0xe000 : 0x7000));
-	OUT_RING  (ring, 0x7c000100);
-	OUT_RELOC (ring, dst_bo);
-	OUT_RING  (ring, 0x7c0001d3);
-	OUT_RELOC (ring, dst_bo);
-	OUT_RING  (ring, 0x7c0001d1);
-	OUT_RING  (ring, 0x40000000 | dp | ((pDstPixmap->drawable.depth == 8) ? 0xe000 : 0x7000));
-	OUT_RING  (ring, 0xd5000000);
-	/* from here, dst params differ from solid: */
+	out_dstpix(ring, pDstPixmap);
 	OUT_RING  (ring, 0x0c000000);
 	OUT_RING  (ring, 0x08000000 | ((dw - 1) & 0xfff) << 12);
 	OUT_RING  (ring, 0x09000000 | ((dh - 1) & 0xfff) << 12);
@@ -826,14 +777,10 @@ MSMComposite(PixmapPtr pDstPixmap, int srcX, int srcY, int maskX, int maskY,
 		OUT_RING(ring, exa->op_dwords[2]);
 	OUT_RING(ring, exa->op_dwords[3]);
 
-	OUT_RING  (ring, 0x11000060 | (pMaskPixmap ? 0 : 0x80) | (PICT_FORMAT_A(exa->dstpic->format) ? 0 : 0x00200000));
+	OUT_RING  (ring, 0x11000060 | (pMaskPixmap ? 0 : 0x80) |
+			(PICT_FORMAT_A(exa->dstpic->format) ? 0 : 0x00200000));
 	OUT_RING  (ring, 0xd0000000);
-	OUT_RING  (ring, 0x7c0003d1);
-	/* setup of src parameters: */
-	OUT_RING  (ring, 0x40000000 | sp | ((pSrcPixmap->drawable.depth == 8) ? 0xe000 : 0x7000));
-	// TODO check if 13 bit
-	OUT_RING  (ring, (((sh * 2) & 0xfff) << 12) | (sw & 0xfff));
-	OUT_RELOC (ring, src_bo);
+	out_srcpix(ring, pSrcPixmap);
 	OUT_RING  (ring, 0xd5000000);
 	if (pMaskPixmap) {
 		/* XXX C2D2 doesn't give a way to specify maskX/maskY, so not
@@ -841,13 +788,9 @@ MSMComposite(PixmapPtr pDstPixmap, int srcX, int srcY, int maskX, int maskY,
 		 * mask coords are specified in the cmdstream.  One possible
 		 * approach is ptr arithmetic on the gpuaddr
 		 */
-		OUT_RING (ring, 0xd0020000);
-		OUT_RING (ring, 0x7c0003d1);
-		OUT_RING (ring, 0x40000000 | mp | ((pMaskPixmap->drawable.depth == 8) ? 0xe000 : 0x7000));
-		// TODO check if 13 bit
-		OUT_RING  (ring, (((mh * 2) & 0xfff) << 12) | (mw & 0xfff));
-		OUT_RELOC(ring, mask_bo);
-		OUT_RING (ring, 0xd5000080);
+		OUT_RING  (ring, 0xd0020000);
+		out_srcpix(ring, pMaskPixmap);
+		OUT_RING  (ring, 0xd5000080);
 	}
 	OUT_RING  (ring, 0xd0000000);
 	OUT_RING  (ring, 0x0f00000a);
