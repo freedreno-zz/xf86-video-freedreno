@@ -354,7 +354,7 @@ MSMSolid(PixmapPtr pPixmap, int x1, int y1, int x2, int y2)
 
 	TRACE_EXA("x1=%d\ty1=%d\tx2=%d\ty2=%d", x1, y1, x2, y2);
 
-	BEGIN_RING(ring, 23);
+	BEGIN_RING(ring, 23, "solid");
 	out_dstpix(ring, pPixmap);
 	OUT_RING  (ring, 0x08000000 | ((x2 & 0xfff) << 12) | (x1 & 0xfff));
 	OUT_RING  (ring, 0x09000000 | ((y2 & 0xfff) << 12) | (y1 & 0xfff));
@@ -481,7 +481,7 @@ MSMCopy(PixmapPtr pDstPixmap, int srcX, int srcY, int dstX, int dstY,
 	TRACE_EXA("srcX=%d\tsrcY=%d\tdstX=%d\tdstY=%d\twidth=%d\theight=%d",
 			srcX, srcY, dstX, dstY, width, height);
 
-	BEGIN_RING(ring, 45);
+	BEGIN_RING(ring, 45, "copy");
 	out_dstpix(ring, pDstPixmap);
 	OUT_RING  (ring, 0x0c000000);
 	OUT_RING  (ring, 0x08000000 | ((dw - 1) & 0xfff) << 12);
@@ -748,7 +748,7 @@ MSMComposite(PixmapPtr pDstPixmap, int srcX, int srcY, int maskX, int maskY,
 	TRACE_EXA("srcX=%d\tsrcY=%d\tmaskX=%d\tmaskY=%d\tdstX=%d\tdstY=%d\twidth=%d\theight=%d",
 			srcX, srcY, maskX, maskY, dstX, dstY, width, height);
 
-	BEGIN_RING(ring, 59);
+	BEGIN_RING(ring, 59, "composite");
 	out_dstpix(ring, pDstPixmap);
 	OUT_RING  (ring, 0x0c000000);
 	OUT_RING  (ring, 0x08000000 | ((dw - 1) & 0xfff) << 12);
@@ -835,30 +835,6 @@ MSMDoneComposite(PixmapPtr pDst)
 }
 
 /**
- * MarkSync() requests that the driver mark a synchronization point,
- * returning an driver-defined integer marker which could be requested for
- * synchronization to later in WaitMarker().  This might be used in the
- * future to avoid waiting for full hardware stalls before accessing pixmap
- * data with the CPU, but is not important in the current incarnation of
- * EXA.
- *
- * Note that drivers should call exaMarkSync() when they have done some
- * acceleration, rather than their own MarkSync() handler, as otherwise EXA
- * will be unaware of the driver's acceleration and not sync to it during
- * fallbacks.
- *
- * MarkSync() is optional.
- */
-static int
-MSMMarkSync(ScreenPtr pScreen)
-{
-	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
-	MSMPtr pMsm = MSMPTR(pScrn);
-	return kgsl_ringbuffer_mark(pMsm->rings[1]);
-}
-
-
-/**
  * WaitMarker() waits for all rendering before the given marker to have
  * completed.  If the driver does not implement MarkSync(), marker is
  * meaningless, and all rendering by the hardware should be completed before
@@ -875,7 +851,8 @@ MSMWaitMarker(ScreenPtr pScreen, int marker)
 {
 	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
 	MSMPtr pMsm = MSMPTR(pScrn);
-	kgsl_ringbuffer_wait(pMsm->rings[1], marker);
+	FIRE_RING(pMsm->rings[1]);
+	kgsl_ringbuffer_wait(pMsm->rings[1]);
 }
 
 static Bool
@@ -979,8 +956,21 @@ MSMDestroyPixmap(ScreenPtr pScreen, void *dpriv)
 	if (!dpriv)
 		return;
 
-	if (priv->bo)
+	if (priv->bo) {
+		FIRE_RING(pMsm->rings[1]);
+
+		/* need to ensure blits to the surface complete..  this kinda sucks,
+		 * really it would be nice if the kernel kept track of pending buffers
+		 * and handled the deferred free
+		 *
+		 * Perhaps we can work around this by tracking pending buffers in
+		 * userspace.. for now, just to make things not explode horribly when
+		 * a pixmap is freed:
+		 */
+		kgsl_ringbuffer_wait(pMsm->rings[1]);
+
 		msm_drm_bo_free(pMsm, priv->bo);
+	}
 
 	free(dpriv);
 }
@@ -1044,7 +1034,6 @@ MSMSetupExa(ScreenPtr pScreen)
 	pExa->PrepareComposite   = MSMPrepareComposite;
 	pExa->Composite          = MSMComposite;
 	pExa->DoneComposite      = MSMDoneComposite;
-	pExa->MarkSync           = MSMMarkSync;
 	pExa->WaitMarker         = MSMWaitMarker;
 	pExa->PixmapIsOffscreen  = MSMPixmapIsOffscreen;
 	pExa->CreatePixmap       = MSMCreatePixmap;

@@ -89,6 +89,8 @@ typedef struct _MSMRec
 	/* Place holder for the standard close screen function */
 	CloseScreenProcPtr CloseScreen;
 
+	ScreenBlockHandlerProcPtr BlockHandler;
+
 	Bool HWCursor;
 	int HWCursorState;
 	int defaultVsync;

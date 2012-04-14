@@ -222,6 +222,7 @@ kgsl_ringbuffer_init(ScrnInfoPtr pScrn, int fd)
 
 	INFO_MSG("context buffers: %08x, %08x, %08x",
 			ring->start[120], ring->start[122], ring->start[124]);
+	INFO_MSG("cmdstream buffer: %08x", ring->cmdstream->gpuaddr);
 
 	/* do initial setup: */
 	kgsl_ringbuffer_flush(ring, 0);
@@ -232,7 +233,7 @@ kgsl_ringbuffer_init(ScrnInfoPtr pScrn, int fd)
 static void
 kgsl_ringbuffer_start(struct kgsl_ringbuffer *ring)
 {
-	BEGIN_RING(ring, 8);
+	BEGIN_RING(ring, 8, "start");
 	OUT_RING  (ring, 0x7c000329);
 	OUT_RING  (ring, ring->context_bos[0]->gpuaddr);
 	OUT_RING  (ring, ring->context_bos[1]->gpuaddr);
@@ -247,7 +248,12 @@ kgsl_ringbuffer_start(struct kgsl_ringbuffer *ring)
 int
 kgsl_ringbuffer_flush(struct kgsl_ringbuffer *ring, int min)
 {
+	/* if nothing emitted yet, then bail */
+	if (ring->cur == &ring->start[STATE_SIZE + 8])
+		return 0;
+
 	if (ring->last_start != ring->cur) {
+		uint32_t last_size;
 		struct kgsl_ibdesc ibdesc = {
 				.gpuaddr     = ring->cmdstream->gpuaddr,
 				.hostptr     = ring->cmdstream->hostptr,
@@ -264,9 +270,14 @@ kgsl_ringbuffer_flush(struct kgsl_ringbuffer *ring, int min)
 		};
 		int ret;
 
+		OUT_RING(ring, 0xfe000003);
+		OUT_RING(ring, 0x7f000000);
+		OUT_RING(ring, 0x7f000000);
+
+
 		/* fix up size field in last cmd packet */
-		uint32_t last_size = (uint32_t)(ring->cur - ring->last_start);
-		ring->last_start[2] = last_size;
+		last_size = (uint32_t)(ring->cur - ring->last_start) + 8;
+		ring->last_start[-6] = last_size;
 
 		ret = ioctl(ring->fd, IOCTL_KGSL_RINGBUFFER_ISSUEIBCMDS, &req);
 		if (ret)
@@ -276,26 +287,42 @@ kgsl_ringbuffer_flush(struct kgsl_ringbuffer *ring, int min)
 
 		// TODO until the ISSUEIBCMDS is re-worked on kernel side,
 		// we can only do one blit at a time:
-		kgsl_ringbuffer_wait(ring, ring->timestamp);
+		kgsl_ringbuffer_wait(ring);
 	}
 
 	ring->cur = &ring->start[STATE_SIZE];
 	ring->last_start = ring->cur;
 
+	OUT_RING (ring, 0x7c000275);
+	OUT_RING (ring, 0x00000000);	/* next address */
+	OUT_RING (ring, 0x00000000);	/* next size */
+	OUT_RING (ring, 0x7c000134);
+	OUT_RING (ring, 0x00000000);
+
+	OUT_RING (ring, 0x7c000275);
+	OUT_RING (ring, 0x00000000);	/* fixed up by kernel */
+	OUT_RING (ring, 0x00000000);	/* fixed up by kernel */
+
 	return 0;
 }
 
-int kgsl_ringbuffer_mark(struct kgsl_ringbuffer *ring)
+uint32_t kgsl_ringbuffer_timestamp(struct kgsl_ringbuffer *ring)
 {
-	kgsl_ringbuffer_flush(ring, 0);
-	return ring->timestamp;
+	struct kgsl_cmdstream_readtimestamp req = {
+			.type = KGSL_TIMESTAMP_RETIRED,
+	};
+	int ret;
+	ret = ioctl(ring->fd, IOCTL_KGSL_CMDSTREAM_READTIMESTAMP, &req);
+	if (ret)
+		ErrorF("readtimestamp failed! %d (%s)\n", ret, strerror(errno));
+	return req.timestamp;
 }
 
-void kgsl_ringbuffer_wait(struct kgsl_ringbuffer *ring, int marker)
+void kgsl_ringbuffer_wait(struct kgsl_ringbuffer *ring)
 {
 	struct kgsl_device_waittimestamp req = {
-			.timestamp = marker,
-			.timeout   = 1000,
+			.timestamp = ring->timestamp,
+			.timeout   = ~0,
 	};
 	int ret;
 	do {

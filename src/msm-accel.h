@@ -50,14 +50,14 @@ struct kgsl_ringbuffer {
 
 
 int kgsl_ringbuffer_flush(struct kgsl_ringbuffer *ring, int min);
-int kgsl_ringbuffer_mark(struct kgsl_ringbuffer *ring);
-void kgsl_ringbuffer_wait(struct kgsl_ringbuffer *ring, int marker);
+uint32_t kgsl_ringbuffer_timestamp(struct kgsl_ringbuffer *ring);
+void kgsl_ringbuffer_wait(struct kgsl_ringbuffer *ring);
 
 static inline void
-OUT_RING(struct kgsl_ringbuffer *ring, unsigned data)
+OUT_RING(struct kgsl_ringbuffer *ring, uint32_t data)
 {
 	if (LOG_DWORDS) {
-		ErrorF("ring[%d]: OUT_RING   %04x:  %08x\n", ring->drawctxt_id,
+		ErrorF("ring[%d]: OUT_RING   %04x:  %08x\n", ring->fd,
 				(uint32_t)(ring->cur - ring->last_start), data);
 	}
 	*(ring->cur++) = data;
@@ -70,7 +70,7 @@ OUT_RELOC(struct kgsl_ringbuffer *ring, struct msm_drm_bo *bo)
 	 * (but someday we might do something more clever..)
 	 */
 	if (LOG_DWORDS) {
-		ErrorF("ring[%d]: OUT_RELOC  %04x:  %08x\n", ring->drawctxt_id,
+		ErrorF("ring[%d]: OUT_RELOC  %04x:  %08x\n", ring->fd,
 				(uint32_t)(ring->cur - ring->last_start),
 				msm_drm_bo_gpuptr(bo));
 	}
@@ -78,43 +78,33 @@ OUT_RELOC(struct kgsl_ringbuffer *ring, struct msm_drm_bo *bo)
 }
 
 static inline void
-BEGIN_RING(struct kgsl_ringbuffer *ring, int size)
+FIRE_RING(struct kgsl_ringbuffer *ring)
 {
-#if 0
-	/* current kernel side just expects one cmd packet per ISSUEIBCMDS: */
-	size += 11;       /* common header/footer */
+	kgsl_ringbuffer_flush(ring, 0);
+}
+
+static inline void
+BEGIN_RING(struct kgsl_ringbuffer *ring, int size, const char *name)
+{
+	size += 3;   /* end of packet added in kgsl_ringbuffer_flush() */
 
 	if ((ring->cur + size) > ring->end)
 		kgsl_ringbuffer_flush(ring, size);
-#endif
 
-	/* each packet seems to carry the address/size of next (w/ 0x00000000
-	 * meaning no branch, next packet follows).  Each cmd packet is preceded
-	 * by a dummy packet to give the size of the next..
-	 */
-	OUT_RING (ring, 0x7c000275);
-	OUT_RING (ring, 0x00000000);	/* next address */
-	OUT_RING (ring, 0x00000000);	/* next size */
-	OUT_RING (ring, 0x7c000134);
-	OUT_RING (ring, 0x00000000);
-
-	OUT_RING (ring, 0x7c000275);
-	OUT_RING (ring, 0x00000000);	/* fixed up by kernel */
-	OUT_RING (ring, 0x00000000);	/* fixed up by kernel */
+	if (LOG_DWORDS) {
+		ErrorF("ring[%d]: BEGIN_RING %04x:  %s\n", ring->fd,
+				(uint32_t)(ring->cur - ring->last_start), name);
+	}
 }
 
 static inline void
 END_RING(struct kgsl_ringbuffer *ring)
 {
-	/* This appears to be common end of packet: */
-	OUT_RING(ring, 0xfe000003);
-	OUT_RING(ring, 0x7f000000);
-	OUT_RING(ring, 0x7f000000);
+	if (LOG_DWORDS) {
+		ErrorF("ring[%d]: END_RING   %04x\n", ring->fd,
+				(uint32_t)(ring->cur - ring->last_start));
+	}
 
-	/* We only support on cmd at a time until issueibcmds ioctl is fixed
-	 * to work sanely..
-	 */
-	kgsl_ringbuffer_flush(ring, 0);
 }
 
 
