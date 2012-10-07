@@ -255,6 +255,9 @@ out_dstpix(struct kgsl_ringbuffer *ring, PixmapPtr pix)
 	OUT_RING (ring, 0x40000000 | p |
 			((pix->drawable.depth == 8) ? 0xe000 : 0x7000));
 	OUT_RING (ring, 0xd5000000);
+	OUT_RING  (ring, 0x0c000000);
+	OUT_RING  (ring, 0x08000000 | ((w - 1) & 0xfff) << 12);
+	OUT_RING  (ring, 0x09000000 | ((h - 1) & 0xfff) << 12);
 }
 
 static inline void
@@ -356,8 +359,6 @@ MSMSolid(PixmapPtr pPixmap, int x1, int y1, int x2, int y2)
 
 	BEGIN_RING(ring, 23);
 	out_dstpix(ring, pPixmap);
-	OUT_RING  (ring, 0x08000000 | ((x2 & 0xfff) << 12) | (x1 & 0xfff));
-	OUT_RING  (ring, 0x09000000 | ((y2 & 0xfff) << 12) | (y1 & 0xfff));
 	OUT_RING  (ring, 0x0f000000);
 	OUT_RING  (ring, 0x0f000000);
 	OUT_RING  (ring, 0x0f000001);
@@ -473,19 +474,12 @@ MSMCopy(PixmapPtr pDstPixmap, int srcX, int srcY, int dstX, int dstY,
 {
 	MSM_LOCALS(pDstPixmap);
 	PixmapPtr pSrcPixmap = exa->src;
-	uint32_t dw, dh;
-
-	dw = pDstPixmap->drawable.width;
-	dh = pDstPixmap->drawable.height;
 
 	TRACE_EXA("srcX=%d\tsrcY=%d\tdstX=%d\tdstY=%d\twidth=%d\theight=%d",
 			srcX, srcY, dstX, dstY, width, height);
 
 	BEGIN_RING(ring, 45);
 	out_dstpix(ring, pDstPixmap);
-	OUT_RING  (ring, 0x0c000000);
-	OUT_RING  (ring, 0x08000000 | ((dw - 1) & 0xfff) << 12);
-	OUT_RING  (ring, 0x09000000 | ((dh - 1) & 0xfff) << 12);
 	OUT_RING  (ring, 0x7c00020a);
 	OUT_RING  (ring, 0xff000000);
 	OUT_RING  (ring, 0xff000000);
@@ -740,19 +734,12 @@ MSMComposite(PixmapPtr pDstPixmap, int srcX, int srcY, int maskX, int maskY,
 	MSM_LOCALS(pDstPixmap);
 	PixmapPtr pSrcPixmap = exa->src;
 	PixmapPtr pMaskPixmap = exa->mask;
-	uint32_t dw, dh;
-
-	dw = pDstPixmap->drawable.width;
-	dh = pDstPixmap->drawable.height;
 
 	TRACE_EXA("srcX=%d\tsrcY=%d\tmaskX=%d\tmaskY=%d\tdstX=%d\tdstY=%d\twidth=%d\theight=%d",
 			srcX, srcY, maskX, maskY, dstX, dstY, width, height);
 
 	BEGIN_RING(ring, 59);
 	out_dstpix(ring, pDstPixmap);
-	OUT_RING  (ring, 0x0c000000);
-	OUT_RING  (ring, 0x08000000 | ((dw - 1) & 0xfff) << 12);
-	OUT_RING  (ring, 0x09000000 | ((dh - 1) & 0xfff) << 12);
 
 	if (!PICT_FORMAT_A(exa->dstpic->format)) {
 		OUT_RING(ring, 0x7c00020a);
