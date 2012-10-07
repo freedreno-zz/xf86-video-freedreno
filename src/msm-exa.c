@@ -39,6 +39,8 @@
 #include "msm-drm.h"
 #include "msm-accel.h"
 
+#include "freedreno_z1xx.h"
+
 #define xFixedtoDouble(_f) (double) ((_f)/(double) xFixed1)
 
 #define ENABLE_EXA_TRACE				1
@@ -240,24 +242,24 @@ out_dstpix(struct kgsl_ringbuffer *ring, PixmapPtr pix)
 	 * emitting dst/src/mask surf state in the corresponding Prepare
 	 * fxns rather than for every blit..
 	 */
-	OUT_RING (ring, 0x0c000000);
-	OUT_RING (ring, 0x11000000);
-	OUT_RING (ring, 0xd0030000);
+	OUT_RING (ring, REG(G2D_ALPHABLEND) | 0x0);
+	OUT_RING (ring, REG(G2D_BLENDERCFG) | 0x0);
+	OUT_RING (ring, REG(G2D_GRADIENT) | 0x030000);
 	// TODO check if 13 bit
-	OUT_RING (ring, 0xd2000000 | ((h & 0xfff) << 13) | (w & 0xfff));
-	OUT_RING (ring, 0x01000000 | p |
+	OUT_RING (ring, REG(GRADW_TEXSIZE) | ((h & 0xfff) << 13) | (w & 0xfff));
+	OUT_RING (ring, REG(G2D_CFG0) | p |
 			((pix->drawable.depth == 8) ? 0xe000 : 0x7000));
-	OUT_RING (ring, 0x7c000100);
+	OUT_RING (ring, REGM(G2D_BASE0, 1));
 	OUT_RELOC(ring, bo);
-	OUT_RING (ring, 0x7c0001d3);
+	OUT_RING (ring, REGM(GRADW_TEXBASE, 1));
 	OUT_RELOC(ring, bo);
-	OUT_RING (ring, 0x7c0001d1);
+	OUT_RING (ring, REGM(GRADW_TEXCFG, 1));
 	OUT_RING (ring, 0x40000000 | p |
 			((pix->drawable.depth == 8) ? 0xe000 : 0x7000));
 	OUT_RING (ring, 0xd5000000);
-	OUT_RING  (ring, 0x0c000000);
-	OUT_RING  (ring, 0x08000000 | ((w - 1) & 0xfff) << 12);
-	OUT_RING  (ring, 0x09000000 | ((h - 1) & 0xfff) << 12);
+	OUT_RING (ring, REG(G2D_ALPHABLEND) | 0x0);
+	OUT_RING (ring, REG(G2D_SCISSORX) | ((w - 1) & 0xfff) << 12);
+	OUT_RING (ring, REG(G2D_SCISSORY) | ((h - 1) & 0xfff) << 12);
 }
 
 static inline void
@@ -274,12 +276,12 @@ out_srcpix(struct kgsl_ringbuffer *ring, PixmapPtr pix)
 	 */
 	p = (msm_pixmap_get_pitch(pix) / 32) & 0xfff;
 
-	OUT_RING (ring, 0x7c0003d1);
-	OUT_RING (ring, 0x40000000 | p |
+	OUT_RING (ring, REGM(GRADW_TEXCFG, 3));
+	OUT_RING (ring, 0x40000000 | p |   /* GRADW_TEXCFG */
 			((pix->drawable.depth == 8) ? 0xe000 : 0x7000));
 	// TODO check if 13 bit
-	OUT_RING (ring, ((h & 0xfff) << 13) | (w & 0xfff));
-	OUT_RELOC(ring, bo);
+	OUT_RING (ring, ((h & 0xfff) << 13) | (w & 0xfff)); /* GRADW_TEXSIZE */
+	OUT_RELOC(ring, bo);               /* GRADW_TEXBASE */
 }
 
 /**
@@ -363,10 +365,10 @@ MSMSolid(PixmapPtr pPixmap, int x1, int y1, int x2, int y2)
 	OUT_RING  (ring, 0x0f000000);
 	OUT_RING  (ring, 0x0f000001);
 	OUT_RING  (ring, 0x0e000000);
-	OUT_RING  (ring, 0x7c0002f0);
-	OUT_RING  (ring, ((x1 & 0xffff) << 16) | (y1 & 0xffff));
-	OUT_RING  (ring, (((x2 - x1) & 0xffff) << 16) | ((y2 - y1) & 0xffff));
-	OUT_RING  (ring, 0x7c0001ff);
+	OUT_RING  (ring, REGM(G2D_XY, 2));
+	OUT_RING  (ring, ((x1 & 0xffff) << 16) | (y1 & 0xffff));   /* G2D_XY */
+	OUT_RING  (ring, (((x2 - x1) & 0xffff) << 16) | ((y2 - y1) & 0xffff)); /* G2D_WIDTHHEIGHT */
+	OUT_RING  (ring, REGM(G2D_COLOR, 1));
 	OUT_RING  (ring, exa->fill);
 	END_RING  (ring);
 }
@@ -480,10 +482,10 @@ MSMCopy(PixmapPtr pDstPixmap, int srcX, int srcY, int dstX, int dstY,
 
 	BEGIN_RING(ring, 45);
 	out_dstpix(ring, pDstPixmap);
-	OUT_RING  (ring, 0x7c00020a);
-	OUT_RING  (ring, 0xff000000);
-	OUT_RING  (ring, 0xff000000);
-	OUT_RING  (ring, 0x11000000);
+	OUT_RING  (ring, REGM(G2D_FOREGROUND, 2));
+	OUT_RING  (ring, 0xff000000);      /* G2D_FOREGROUND */
+	OUT_RING  (ring, 0xff000000);      /* G2D_BACKGROUND */
+	OUT_RING  (ring, REG(G2D_BLENDERCFG) | 0x0);
 	OUT_RING  (ring, 0xd0000000);
 	out_srcpix(ring, pSrcPixmap);
 	OUT_RING  (ring, 0xd5000000);
@@ -497,10 +499,10 @@ MSMCopy(PixmapPtr pDstPixmap, int srcX, int srcY, int dstX, int dstY,
 	OUT_RING  (ring, 0x0f00000a);
 	OUT_RING  (ring, 0x0f00000a);
 	OUT_RING  (ring, 0x0e000002);
-	OUT_RING  (ring, 0x7c0003f0);
-	OUT_RING  (ring, (dstX & 0xffff) << 16 | (dstY & 0xffff));
-	OUT_RING  (ring, (width & 0xfff) << 16 | (height & 0xffff));
-	OUT_RING  (ring, (srcX & 0xffff) << 16 | (srcY & 0xffff));
+	OUT_RING  (ring, REGM(G2D_XY, 3));
+	OUT_RING  (ring, (dstX & 0xffff) << 16 | (dstY & 0xffff));    /* G2D_XY */
+	OUT_RING  (ring, (width & 0xfff) << 16 | (height & 0xffff));  /* G2D_WIDTHHEIGHT */
+	OUT_RING  (ring, (srcX & 0xffff) << 16 | (srcY & 0xffff));    /* G2D_SXY */
 	OUT_RING  (ring, 0xd0000000);
 	OUT_RING  (ring, 0xd0000000);
 	OUT_RING  (ring, 0xd0000000);
@@ -742,18 +744,18 @@ MSMComposite(PixmapPtr pDstPixmap, int srcX, int srcY, int maskX, int maskY,
 	out_dstpix(ring, pDstPixmap);
 
 	if (!PICT_FORMAT_A(exa->dstpic->format)) {
-		OUT_RING(ring, 0x7c00020a);
-		OUT_RING(ring, 0xff000000);
-		OUT_RING(ring, 0xff000000);
-		OUT_RING(ring, 0x7c0001b2);
+		OUT_RING(ring, REGM(G2D_FOREGROUND, 2));
+		OUT_RING(ring, 0xff000000);      /* G2D_FOREGROUND */
+		OUT_RING(ring, 0xff000000);      /* G2D_BACKGROUND */
+		OUT_RING(ring, REGM(G2D_CONST2, 1));
 		OUT_RING(ring, 0xff000000);
 	} else {
-		OUT_RING(ring, 0x0a000000);
-		OUT_RING(ring, 0x0b000000);
+		OUT_RING(ring, REG(G2D_FOREGROUND) | 0x000000);
+		OUT_RING(ring, REG(G2D_BACKGROUND) | 0x000000);
 	}
 
 	if (!PICT_FORMAT_A(exa->srcpic->format)) {
-		OUT_RING(ring, 0x7c0001b0);
+		OUT_RING(ring, REGM(G2D_CONST0, 1));
 		OUT_RING(ring, 0xff000000);
 	}
 
@@ -764,7 +766,7 @@ MSMComposite(PixmapPtr pDstPixmap, int srcX, int srcY, int maskX, int maskY,
 		OUT_RING(ring, exa->op_dwords[2]);
 	OUT_RING(ring, exa->op_dwords[3]);
 
-	OUT_RING  (ring, 0x11000060 | (pMaskPixmap ? 0 : 0x80) |
+	OUT_RING  (ring, REG(G2D_BLENDERCFG) | 0x60 | (pMaskPixmap ? 0 : 0x80) |
 			(PICT_FORMAT_A(exa->dstpic->format) ? 0 : 0x00200000));
 	OUT_RING  (ring, 0xd0000000);
 	out_srcpix(ring, pSrcPixmap);
@@ -789,10 +791,10 @@ MSMComposite(PixmapPtr pDstPixmap, int srcX, int srcY, int maskX, int maskY,
 	OUT_RING  (ring, 0x0f00000a);
 	OUT_RING  (ring, 0x0f00000a);
 	OUT_RING  (ring, 0x0e000003 | (pMaskPixmap ? 0x04 : 0));
-	OUT_RING  (ring, 0x7c0003f0);
-	OUT_RING  (ring, (dstX & 0xffff) << 16 | (dstY & 0xffff));
-	OUT_RING  (ring, (width & 0xfff) << 16 | (height & 0xffff));
-	OUT_RING  (ring, (srcX & 0xffff) << 16 | (srcY & 0xffff));
+	OUT_RING  (ring, REGM(G2D_XY, 3));
+	OUT_RING  (ring, (dstX & 0xffff) << 16 | (dstY & 0xffff));    /* G2D_XY */
+	OUT_RING  (ring, (width & 0xfff) << 16 | (height & 0xffff));  /* G2D_WIDTHHEIGHT */
+	OUT_RING  (ring, (srcX & 0xffff) << 16 | (srcY & 0xffff));    /* G2D_SXY */
 	OUT_RING  (ring, 0xd0000000);
 	OUT_RING  (ring, 0xd0000000);
 	OUT_RING  (ring, 0xd0000000);
