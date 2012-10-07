@@ -401,6 +401,14 @@ MSMPreInit(ScrnInfoPtr pScrn, int flags)
 	if (ioctl(pMsm->fd, FBIOPAN_DISPLAY, &pMsm->mode_info)) {
 		ERROR_MSG("could not pan on %s: %s", dev, strerror(errno));
 	}
+	/* we have to do this twice because if we were previously
+	 * panned to offset 1, then the first FBIOPAN_DISPLAY wouldn't
+	 * do anything.
+	 */
+	pMsm->mode_info.yoffset = 0;
+	if (ioctl(pMsm->fd, FBIOPAN_DISPLAY, &pMsm->mode_info)) {
+		ERROR_MSG("could not pan on %s: %s", dev, strerror(errno));
+	}
 
 	switch(pMsm->mode_info.bits_per_pixel) {
 	case 16:
