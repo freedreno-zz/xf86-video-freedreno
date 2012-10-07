@@ -107,7 +107,6 @@ MSMInitDRM(ScrnInfoPtr pScrn)
 	MSMPtr pMsm = MSMPTR(pScrn);   int i, fd;
 	drmVersionPtr version;
 	drmSetVersion sv;
-	int ret;
 
 	/* Ugly, huh? */
 
@@ -148,13 +147,11 @@ MSMInitDRM(ScrnInfoPtr pScrn)
 	sv.drm_dd_major = -1;
 	sv.drm_dd_minor = -1;
 
-	ret = drmSetInterfaceVersion(fd, &sv);
-	if (ret != 0) {
-		xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
-				"Unable to set the DRM version: %d\n", ret);
-		close(fd);
-		return FALSE;
-	}
+	/* this can fail if we are not master.. which we might not
+	 * be at this point.. maybe we should call this again when
+	 * we get master to be sure.
+	 */
+	drmSetInterfaceVersion(fd, &sv);
 
 	pMsm->drmFD = fd;
 	return TRUE;
