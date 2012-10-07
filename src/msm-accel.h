@@ -27,7 +27,7 @@
 #include "msm.h"
 #include "msm-drm.h"
 
-#define LOG_DWORDS 1
+#define LOG_DWORDS 0
 
 struct kgsl_vmalloc_bo;
 
