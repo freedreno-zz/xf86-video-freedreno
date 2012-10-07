@@ -393,6 +393,15 @@ MSMPreInit(ScrnInfoPtr pScrn, int flags)
 		return FALSE;
 	}
 
+	/* msm-fb is made of fail.. need to pan otherwise backlight
+	 * driver doesn't get kicked and we end up with backlight off.
+	 * Makes perfect sense.
+	 */
+	pMsm->mode_info.yoffset = 1;
+	if (ioctl(pMsm->fd, FBIOPAN_DISPLAY, &pMsm->mode_info)) {
+		ERROR_MSG("could not pan on %s: %s", dev, strerror(errno));
+	}
+
 	switch(pMsm->mode_info.bits_per_pixel) {
 	case 16:
 		depth = 16;
