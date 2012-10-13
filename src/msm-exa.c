@@ -36,7 +36,6 @@
 #include "exa.h"
 
 #include "msm.h"
-#include "msm-drm.h"
 #include "msm-accel.h"
 
 #include "freedreno_z1xx.h"
@@ -49,7 +48,7 @@
 #define MSM_LOCALS(pDraw) \
 	ScrnInfoPtr pScrn = xf86Screens[((DrawablePtr)(pDraw))->pScreen->myNum]; \
 	MSMPtr pMsm = MSMPTR(pScrn);									\
-	struct kgsl_ringbuffer *ring = pMsm->rings[1]; (void)ring;		\
+	struct fd_ringbuffer *ring = pMsm->ring.ring; (void)ring;		\
 	struct exa_state *exa = pMsm->exa; (void)exa
 
 #define TRACE_EXA(fmt, ...) do {									\
@@ -218,9 +217,9 @@ transform_get_rotate(PictTransform *t, double *d)
 #endif
 
 static inline void
-out_dstpix(struct kgsl_ringbuffer *ring, PixmapPtr pix)
+out_dstpix(struct fd_ringbuffer *ring, PixmapPtr pix)
 {
-	struct msm_drm_bo *bo = msm_get_pixmap_bo(pix);
+	struct fd_bo *bo = msm_get_pixmap_bo(pix);
 	uint32_t w, h, p;
 
 	w = pix->drawable.width;
@@ -263,9 +262,9 @@ out_dstpix(struct kgsl_ringbuffer *ring, PixmapPtr pix)
 }
 
 static inline void
-out_srcpix(struct kgsl_ringbuffer *ring, PixmapPtr pix)
+out_srcpix(struct fd_ringbuffer *ring, PixmapPtr pix)
 {
-	struct msm_drm_bo *bo = msm_get_pixmap_bo(pix);
+	struct fd_bo *bo = msm_get_pixmap_bo(pix);
 	uint32_t w, h, p;
 
 	w = pix->drawable.width;
@@ -371,6 +370,8 @@ MSMSolid(PixmapPtr pPixmap, int x1, int y1, int x2, int y2)
 	OUT_RING  (ring, REGM(G2D_COLOR, 1));
 	OUT_RING  (ring, exa->fill);
 	END_RING  (ring);
+
+	fd_pipe_wait(pMsm->pipe, fd_ringbuffer_timestamp(ring));
 }
 
 /**
@@ -510,6 +511,8 @@ MSMCopy(PixmapPtr pDstPixmap, int srcX, int srcY, int dstX, int dstY,
 	OUT_RING  (ring, 0xd0000000);
 	OUT_RING  (ring, 0xd0000000);
 	END_RING  (ring);
+
+	fd_pipe_wait(pMsm->pipe, fd_ringbuffer_timestamp(ring));
 }
 
 /**
@@ -803,6 +806,7 @@ MSMComposite(PixmapPtr pDstPixmap, int srcX, int srcY, int maskX, int maskY,
 	OUT_RING  (ring, 0xd0000000);
 	END_RING  (ring);
 
+	fd_pipe_wait(pMsm->pipe, fd_ringbuffer_timestamp(ring));
 }
 
 /**
@@ -843,7 +847,7 @@ MSMMarkSync(ScreenPtr pScreen)
 {
 	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
 	MSMPtr pMsm = MSMPTR(pScrn);
-	return kgsl_ringbuffer_mark(pMsm->rings[1]);
+	return fd_ringbuffer_timestamp(pMsm->ring.ring);
 }
 
 
@@ -864,7 +868,7 @@ MSMWaitMarker(ScreenPtr pScreen, int marker)
 {
 	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
 	MSMPtr pMsm = MSMPTR(pScrn);
-	kgsl_ringbuffer_wait(pMsm->rings[1], marker);
+	fd_pipe_wait(pMsm->pipe, marker);
 }
 
 static Bool
@@ -900,11 +904,8 @@ MSMPrepareAccess(PixmapPtr pPixmap, int index)
 	if (!priv->bo)
 		return TRUE;
 
-	if (msm_drm_bo_map(priv->bo))
-		return FALSE;
-
 	if (pPixmap->devPrivate.ptr == NULL)
-		pPixmap->devPrivate.ptr = (void *) priv->bo->hostptr;
+		pPixmap->devPrivate.ptr = fd_bo_map(priv->bo);
 
 	if (pPixmap->drawable.bitsPerPixel == 16 ||
 			pPixmap->drawable.bitsPerPixel == 32) {
@@ -949,7 +950,8 @@ MSMCreatePixmap(ScreenPtr pScreen, int size, int align)
 	if (!size)
 		return priv;
 
-	priv->bo = msm_drm_bo_create(pMsm, size, pMsm->pixmapMemtype);
+	priv->bo = fd_bo_new(pMsm->dev, size,
+			DRM_FREEDRENO_GEM_TYPE_KMEM);
 
 	if (priv->bo)
 		return priv;
@@ -962,16 +964,14 @@ static void
 MSMDestroyPixmap(ScreenPtr pScreen, void *dpriv)
 {
 	struct msm_pixmap_priv *priv = dpriv;
-	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
-	MSMPtr pMsm = MSMPTR(pScrn);
 
-	if (!dpriv)
+	if (!priv)
 		return;
 
 	if (priv->bo)
-		msm_drm_bo_free(pMsm, priv->bo);
+		fd_bo_del(priv->bo);
 
-	free(dpriv);
+	free(priv);
 }
 
 Bool

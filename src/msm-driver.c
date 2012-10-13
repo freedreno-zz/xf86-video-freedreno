@@ -50,7 +50,6 @@
 #include "dixstruct.h"
 
 #include "msm.h"
-#include "msm-drm.h"
 
 #include <drm.h>
 #include "xf86drm.h"
@@ -91,9 +90,7 @@ static const OptionInfoRec MSMOptions[] = {
 		{OPTION_SWCURSOR, "SWCursor", OPTV_BOOLEAN, {0}, FALSE},
 		{OPTION_VSYNC, "DefaultVsync", OPTV_INTEGER, {0}, FALSE},
 		{OPTION_FBCACHE, "FBCache", OPTV_STRING, {0}, FALSE},
-		{OPTION_PIXMAP_MEMTYPE, "PixmapMemtype", OPTV_STRING, {0}, FALSE},
 		{OPTION_PAGEFLIP, "PageFlip", OPTV_BOOLEAN, {0}, FALSE},
-		{OPTION_DRIMEMTYPE, "DRIMemtype", OPTV_STRING, {0}, FALSE },
 		{OPTION_DEBUG, "Debug", OPTV_BOOLEAN, {0}, FALSE},
 		{-1, NULL, OPTV_NONE, {0}, FALSE}
 };
@@ -104,56 +101,17 @@ Bool msmDebug = TRUE;
 static Bool
 MSMInitDRM(ScrnInfoPtr pScrn)
 {
-	MSMPtr pMsm = MSMPTR(pScrn);   int i, fd;
-	drmVersionPtr version;
-	drmSetVersion sv;
+	MSMPtr pMsm = MSMPTR(pScrn);
 
-	/* Ugly, huh? */
-
-	pMsm->drmFD = 0;
-	pMsm->drmDevName[0] = '\0';
-
-	for(i = 0; i < DRM_MAX_MINOR; i++) {
-		int ret = -1;
-
-		snprintf(pMsm->drmDevName, sizeof(pMsm->drmDevName),
-				DRM_DEV_NAME, DRM_DIR_NAME, i);
-		fd = open(pMsm->drmDevName, O_RDWR);
-		if (fd < 0)
-			continue;
-
-		version = drmGetVersion(fd);
-		if (version)
-			ret = strcmp(version->name, "kgsl");
-
-		drmFreeVersion(version);
-
-		if (!ret)
-			break;
-
-		close(fd);
-	}
-
-	if (i ==DRM_MAX_MINOR) {
+	pMsm->drmFD = drmOpen("kgsl", NULL);
+	if (pMsm->drmFD < 0) {
 		xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
 				"Unable to open a DRM device\n");
-		close(fd);
 		return FALSE;
 	}
 
+	pMsm->dev = fd_device_new(pMsm->drmFD);
 
-	sv.drm_di_major = 1;
-	sv.drm_di_minor = 1;
-	sv.drm_dd_major = -1;
-	sv.drm_dd_minor = -1;
-
-	/* this can fail if we are not master.. which we might not
-	 * be at this point.. maybe we should call this again when
-	 * we get master to be sure.
-	 */
-	drmSetInterfaceVersion(fd, &sv);
-
-	pMsm->drmFD = fd;
 	return TRUE;
 }
 
@@ -547,42 +505,6 @@ MSMPreInit(ScrnInfoPtr pScrn, int flags)
 			ERROR_MSG("Invalid FBCache '%s'", str);
 	}
 
-	/* PixmapMemtype - default KMEM */
-	pMsm->pixmapMemtype = MSM_DRM_MEMTYPE_KMEM;
-
-	str = xf86GetOptValString(pMsm->options, OPTION_PIXMAP_MEMTYPE);
-
-	if (str) {
-		/* No for loop here because the memory types are masks, not indexes */
-
-		if (!stricmp(str, "KMEM"))
-			pMsm->pixmapMemtype = MSM_DRM_MEMTYPE_KMEM;
-		else if (!stricmp(str, "UncachedKMEM"))
-			pMsm->pixmapMemtype = MSM_DRM_MEMTYPE_KMEM_NOCACHE;
-		else if (!stricmp(str, "EBI"))
-			pMsm->pixmapMemtype = MSM_DRM_MEMTYPE_EBI;
-		else if (!stricmp(str, "SMI"))
-			pMsm->pixmapMemtype = MSM_DRM_MEMTYPE_SMI;
-		else
-			ERROR_MSG("Invalid pixmap memory type %s", str);
-	}
-
-	/* DRI Memtype - default EBI */
-	pMsm->DRIMemtype = MSM_DRM_MEMTYPE_EBI;
-
-	str = xf86GetOptValString(pMsm->options, OPTION_DRIMEMTYPE);
-
-	if (str) {
-		/* No for loop here because the memory types are masks, not indexes */
-
-		if (!stricmp(str, "EBI"))
-			pMsm->DRIMemtype = MSM_DRM_MEMTYPE_EBI;
-		else if (!stricmp(str, "SMI"))
-			pMsm->DRIMemtype = MSM_DRM_MEMTYPE_SMI;
-		else
-			ERROR_MSG("Invalid DRI memory type %s", str);
-	}
-
 	if (!MSMInitDRM(pScrn)) {
 		ERROR_MSG("Unable to open DRM");
 		return FALSE;
@@ -673,22 +595,6 @@ MSMPreInit(ScrnInfoPtr pScrn, int flags)
 	INFO_MSG(" Default Vsync: %d", pMsm->defaultVsync);
 	INFO_MSG(" FBCache: %s", fbCacheStrings[pMsm->FBCache]);
 
-	// TODO table of mem type names
-	switch(pMsm->pixmapMemtype) {
-	case MSM_DRM_MEMTYPE_KMEM:
-		INFO_MSG(" Pixmap: KMEM");
-		break;
-	case MSM_DRM_MEMTYPE_KMEM_NOCACHE:
-		INFO_MSG(" Pixmap: Uncached KMEM");
-		break;
-	case MSM_DRM_MEMTYPE_EBI:
-		INFO_MSG(" Pixmap: EBI");
-		break;
-	case MSM_DRM_MEMTYPE_SMI:
-		INFO_MSG(" Pixmap: SMI");
-		break;
-	}
-
 	return TRUE;
 }
 
@@ -774,8 +680,6 @@ MSMScreenInit(int scrnIndex, ScreenPtr pScreen, int argc, char **argv)
 		ERROR_MSG("Unable to map the framebuffer memory: %s", strerror(errno));
 		return FALSE;
 	}
-
-	pMsm->curVisiblePtr = pMsm->fbmem;
 
 	/* Set up the mode - this doesn't actually touch the hardware,
 	 * but it makes RandR all happy */

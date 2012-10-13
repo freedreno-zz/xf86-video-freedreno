@@ -25,67 +25,44 @@
 #define MSM_ACCEL_H_
 
 #include "msm.h"
-#include "msm-drm.h"
+#include "freedreno_ringbuffer.h"
 
 #define LOG_DWORDS 0
 
-struct kgsl_vmalloc_bo;
-
-struct kgsl_ringbuffer {
-	int fd;
-	uint32_t *cur, *end, *start;
-	uint32_t *last_start;
-
-	/* the cmdstream buffer: */
-	struct kgsl_vmalloc_bo *cmdstream;
-
-	/* not sure what these are for yet: */
-	struct kgsl_vmalloc_bo *context_bos[3];
-
-	unsigned int drawctxt_id;
-	unsigned int timestamp;
-};
-
 #define STATE_SIZE  0x140
 
-
-int kgsl_ringbuffer_flush(struct kgsl_ringbuffer *ring, int min);
-int kgsl_ringbuffer_mark(struct kgsl_ringbuffer *ring);
-void kgsl_ringbuffer_wait(struct kgsl_ringbuffer *ring, int marker);
-
 static inline void
-OUT_RING(struct kgsl_ringbuffer *ring, unsigned data)
+OUT_RING(struct fd_ringbuffer *ring, unsigned data)
 {
 	if (LOG_DWORDS) {
-		ErrorF("ring[%d]: OUT_RING   %04x:  %08x\n", ring->drawctxt_id,
+		ErrorF("ring[%p]: OUT_RING   %04x:  %08x\n", ring->pipe,
 				(uint32_t)(ring->cur - ring->last_start), data);
 	}
-	*(ring->cur++) = data;
+	fd_ringbuffer_emit(ring, data);
 }
 
 static inline void
-OUT_RELOC(struct kgsl_ringbuffer *ring, struct msm_drm_bo *bo)
+OUT_RELOC(struct fd_ringbuffer *ring, struct fd_bo *bo)
 {
 	/* we don't really do reloc's, so just emits the gpuaddr for a bo..
 	 * (but someday we might do something more clever..)
 	 */
 	if (LOG_DWORDS) {
-		ErrorF("ring[%d]: OUT_RELOC  %04x:  %08x\n", ring->drawctxt_id,
-				(uint32_t)(ring->cur - ring->last_start),
-				msm_drm_bo_gpuptr(bo));
+		ErrorF("ring[%p]: OUT_RELOC  %04x:  %p\n", ring->pipe,
+				(uint32_t)(ring->cur - ring->last_start), bo);
 	}
-	*(ring->cur++) = msm_drm_bo_gpuptr(bo);
+	fd_ringbuffer_emit_reloc(ring, bo, 0);
 }
 
 static inline void
-BEGIN_RING(struct kgsl_ringbuffer *ring, int size)
+BEGIN_RING(struct fd_ringbuffer *ring, int size)
 {
 #if 0
 	/* current kernel side just expects one cmd packet per ISSUEIBCMDS: */
 	size += 11;       /* common header/footer */
 
 	if ((ring->cur + size) > ring->end)
-		kgsl_ringbuffer_flush(ring, size);
+		fd_ringbuffer_flush(ring, size);
 #endif
 
 	/* each packet seems to carry the address/size of next (w/ 0x00000000
@@ -104,7 +81,7 @@ BEGIN_RING(struct kgsl_ringbuffer *ring, int size)
 }
 
 static inline void
-END_RING(struct kgsl_ringbuffer *ring)
+END_RING(struct fd_ringbuffer *ring)
 {
 	/* This appears to be common end of packet: */
 	OUT_RING(ring, 0xfe000003);
@@ -114,7 +91,8 @@ END_RING(struct kgsl_ringbuffer *ring)
 	/* We only support on cmd at a time until issueibcmds ioctl is fixed
 	 * to work sanely..
 	 */
-	kgsl_ringbuffer_flush(ring, 0);
+	fd_ringbuffer_flush(ring);
+	fd_ringbuffer_reset(ring);
 }
 
 

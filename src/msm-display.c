@@ -43,7 +43,6 @@ k *
 #include "xf86Crtc.h"
 #include "xf86_OSlib.h"
 #include "msm.h"
-#include "msm-drm.h"
 
 
 static void

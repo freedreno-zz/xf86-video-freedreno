@@ -38,6 +38,9 @@
 #include <linux/ioctl.h>
 #include <linux/msm_mdp.h>
 
+#include <freedreno_drmif.h>
+#include <freedreno_ringbuffer.h>
+
 #define ARRAY_SIZE(a) (sizeof((a)) / (sizeof(*(a))))
 
 /* This enumerates all of the available options */
@@ -49,9 +52,7 @@ typedef enum
 	OPTION_SWCURSOR,
 	OPTION_VSYNC,
 	OPTION_FBCACHE,
-	OPTION_PIXMAP_MEMTYPE,
 	OPTION_PAGEFLIP,
-	OPTION_DRIMEMTYPE,
 	OPTION_DEBUG,
 } MSMOpts;
 
@@ -95,25 +96,23 @@ typedef struct _MSMRec
 	int FBCache;
 
 	int drmFD;
-	char drmDevName[64];
 
-	int kgsl_3d0_fd;
+	struct fd_device *dev;
 
 	/* for now just a single ringbuffer.. not sure if we need more..
 	 * probably would like more until context restore works in a sane
 	 * way..
 	 */
-	struct kgsl_ringbuffer *rings[2];
+	struct {
+		struct fd_ringbuffer *ring;
+		struct fd_bo *context_bos[3];
+	} ring;
+	struct fd_pipe *pipe;
 
 	/* EXA state: */
 	struct exa_state *exa;
 
-	int pixmapMemtype;
-	int DRIMemtype;
-	struct msm_drm_bo *cachedBo;
-
-	struct msm_drm_bo *fbBo;
-	void *curVisiblePtr;
+	struct fd_bo *scanout;
 
 	OptionInfoPtr     options;
 	PixmapPtr rotatedPixmap;
@@ -122,7 +121,7 @@ typedef struct _MSMRec
 } MSMRec, *MSMPtr;
 
 struct msm_pixmap_priv {
-	struct msm_drm_bo *bo;
+	struct fd_bo *bo;
 	int SavedPitch;
 };
 
@@ -146,12 +145,11 @@ void MSMCrtcSetup(ScrnInfoPtr pScrn);
 
 #define xFixedtoDouble(_f) (double) ((_f)/(double) xFixed1)
 
-unsigned int msm_pixmap_gpuptr(PixmapPtr);
 void *msm_pixmap_hostptr(PixmapPtr);
 int msm_pixmap_offset(PixmapPtr);
 int msm_pixmap_get_pitch(PixmapPtr pix);
 Bool msm_pixmap_in_gem(PixmapPtr);
-struct msm_drm_bo *msm_get_pixmap_bo(PixmapPtr);
+struct fd_bo *msm_get_pixmap_bo(PixmapPtr);
 
 
 /**

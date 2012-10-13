@@ -32,7 +32,6 @@
 #include <linux/msm_kgsl.h>
 
 #include "msm.h"
-#include "msm-drm.h"
 #include "msm-accel.h"
 
 /* matching buffer info:
@@ -45,7 +44,7 @@
                 len:            00081000
                 gpuaddr:        66280000
  */
-static uint32_t initial_state[] = {
+static const uint32_t initial_state[] = {
 		 0x7c000275, 0x00000000, 0x00050005, 0x7c000129,
 		 0x00000000, 0x7c00012a, 0x00000000, 0x7c00012b,
 		 0x00000000, 0x7c00010f, 0x00000000, 0x7c000108,
@@ -128,257 +127,68 @@ static uint32_t initial_state[] = {
 		 0x00000000, 0x7c0001d5, 0x00000000, 0x7f000000,
 };
 
-/* because kgsl tries to validate the gpuaddr on kernel side in ISSUEIBCMDS,
- * we can't use normal gem bo's for ringbuffer..  someday the kernel part
- * needs to be reworked into a single sane drm driver :-/
- */
-struct kgsl_vmalloc_bo {
-	void    *hostptr;
-	uint32_t gpuaddr;
-	uint32_t size;
-};
-
-static struct kgsl_vmalloc_bo *
-gpumem_create(MSMPtr pMsm, int size)
-{
-	struct kgsl_vmalloc_bo *bo;
-
-	bo = calloc(1, sizeof *bo);
-	if (!bo) {
-		ErrorF("failed to allocate kgsl bo\n");
-		return NULL;
-	}
-
-	bo->size = size;
-	bo->hostptr = mmap(NULL, size, PROT_READ|PROT_WRITE,
-			MAP_SHARED|MAP_ANONYMOUS|MAP_NORESERVE, -1, 0);
-
-	if (bo->hostptr) {
-		struct kgsl_sharedmem_from_vmalloc req = {
-				.hostptr = (unsigned long)bo->hostptr,
-				.flags   = 1,
-		};
-		int ret = ioctl(pMsm->kgsl_3d0_fd,
-				IOCTL_KGSL_SHAREDMEM_FROM_VMALLOC, &req);
-		if (ret) {
-			ErrorF("IOCTL_KGSL_SHAREDMEM_FROM_VMALLOC failed: %d (%s)\n",
-					ret, strerror(errno));
-			goto fail;
-		}
-		bo->gpuaddr = req.gpuaddr;
-		return bo;
-	}
-
-fail:
-	if (bo->hostptr)
-		munmap(bo->hostptr, size);
-	free(bo);
-	return NULL;
-}
-
-static struct kgsl_ringbuffer *
-kgsl_ringbuffer_init(ScrnInfoPtr pScrn, int fd)
+static void
+ringbuffer_start(ScrnInfoPtr pScrn)
 {
 	MSMPtr pMsm = MSMPTR(pScrn);
-	struct kgsl_drawctxt_create req = {
-			.flags = 0,
-	};
-	struct kgsl_ringbuffer *ring;
-	int ret;
+	struct fd_ringbuffer *ring;
 
-	ret = ioctl(fd, IOCTL_KGSL_DRAWCTXT_CREATE, &req);
-	if (ret) {
-		ERROR_MSG("failed to allocate context: %d (%s)",
-				ret, strerror(errno));
-		return NULL;
-	}
+	ring = pMsm->ring.ring = fd_ringbuffer_new(pMsm->pipe, 0x5000);
 
-	/* allocate ringbuffer: */
-	ring = calloc(1, sizeof *ring);
-	if (!ring) {
-		ERROR_MSG("allocation failed");
-		return NULL;
-	}
-
-	ring->fd = fd;
-	ring->drawctxt_id = req.drawctxt_id;
-
-	ring->context_bos[0] = gpumem_create(pMsm,  0x1000);
-	ring->context_bos[1] = gpumem_create(pMsm,  0x9000);
-	ring->context_bos[2] = gpumem_create(pMsm, 0x81000);
-
-	ring->cmdstream = gpumem_create(pMsm, 0x5000);
-
-	ring->start = ring->cmdstream->hostptr;
-	ring->end   = ring->start + ring->cmdstream->size;
+	pMsm->ring.context_bos[0] = fd_bo_new(pMsm->dev, 0x1000,
+			DRM_FREEDRENO_GEM_TYPE_KMEM);
+	pMsm->ring.context_bos[1] = fd_bo_new(pMsm->dev, 0x9000,
+			DRM_FREEDRENO_GEM_TYPE_KMEM);
+	pMsm->ring.context_bos[2] = fd_bo_new(pMsm->dev, 0x81000,
+			DRM_FREEDRENO_GEM_TYPE_KMEM);
 
 	/* for now, until state packet is understood, just use a pre-canned
 	 * state captured from libC2D2 test, and fix up the gpu addresses
 	 */
 	memcpy(ring->start, initial_state, STATE_SIZE * sizeof(uint32_t));
-	ring->start[120] = ring->context_bos[0]->gpuaddr;
-	ring->start[122] = ring->context_bos[1]->gpuaddr;
-	ring->start[124] = ring->context_bos[2]->gpuaddr;
+	ring->cur = &ring->start[120];
+	OUT_RELOC (ring, pMsm->ring.context_bos[0]);
+	ring->cur = &ring->start[122];
+	OUT_RELOC (ring, pMsm->ring.context_bos[1]);
+	ring->cur = &ring->start[124];
+	OUT_RELOC (ring, pMsm->ring.context_bos[2]);
 
-	INFO_MSG("context buffers: %08x, %08x, %08x",
-			ring->start[120], ring->start[122], ring->start[124]);
+	fd_ringbuffer_reset(ring);
 
-	/* do initial setup: */
-	kgsl_ringbuffer_flush(ring, 0);
-
-	return ring;
-}
-
-static void
-kgsl_ringbuffer_start(struct kgsl_ringbuffer *ring)
-{
 	BEGIN_RING(ring, 8);
 	OUT_RING  (ring, 0x7c000329);
-	OUT_RING  (ring, ring->context_bos[0]->gpuaddr);
-	OUT_RING  (ring, ring->context_bos[1]->gpuaddr);
-	OUT_RING  (ring, ring->context_bos[2]->gpuaddr);
+	OUT_RELOC (ring, pMsm->ring.context_bos[0]);
+	OUT_RELOC (ring, pMsm->ring.context_bos[1]);
+	OUT_RELOC (ring, pMsm->ring.context_bos[2]);
 	OUT_RING  (ring, 0x11000000);
 	OUT_RING  (ring, 0x10fff000);
 	OUT_RING  (ring, 0x10ffffff);
 	OUT_RING  (ring, 0x0d000404);
 	END_RING  (ring);
+
+	fd_pipe_wait(pMsm->pipe, fd_ringbuffer_timestamp(ring));
 }
-
-int
-kgsl_ringbuffer_flush(struct kgsl_ringbuffer *ring, int min)
-{
-	if (ring->last_start != ring->cur) {
-		struct kgsl_ibdesc ibdesc = {
-				.gpuaddr     = ring->cmdstream->gpuaddr,
-				.hostptr     = ring->cmdstream->hostptr,
-				.sizedwords  = 0x145,
-		};
-		struct kgsl_ringbuffer_issueibcmds req = {
-				.drawctxt_id = ring->drawctxt_id,
-				.ibdesc_addr = (unsigned long)&ibdesc,
-				.numibs      = 1,
-				.flags       = KGSL_CONTEXT_SUBMIT_IB_LIST,
-				/* z180_cmdstream_issueibcmds() is made of fail:
-				 */
-				.timestamp   = (unsigned long)ring->cmdstream->hostptr,
-		};
-		int ret;
-
-		/* fix up size field in last cmd packet */
-		uint32_t last_size = (uint32_t)(ring->cur - ring->last_start);
-		ring->last_start[2] = last_size;
-
-		ret = ioctl(ring->fd, IOCTL_KGSL_RINGBUFFER_ISSUEIBCMDS, &req);
-		if (ret)
-			ErrorF("issueibcmds failed!  %d (%s)\n", ret, strerror(errno));
-
-		ring->timestamp = req.timestamp;
-
-		// TODO until the ISSUEIBCMDS is re-worked on kernel side,
-		// we can only do one blit at a time:
-		kgsl_ringbuffer_wait(ring, ring->timestamp);
-	}
-
-	ring->cur = &ring->start[STATE_SIZE];
-	ring->last_start = ring->cur;
-
-	return 0;
-}
-
-int kgsl_ringbuffer_mark(struct kgsl_ringbuffer *ring)
-{
-	kgsl_ringbuffer_flush(ring, 0);
-	return ring->timestamp;
-}
-
-void kgsl_ringbuffer_wait(struct kgsl_ringbuffer *ring, int marker)
-{
-	struct kgsl_device_waittimestamp req = {
-			.timestamp = marker,
-			.timeout   = 1000,
-	};
-	int ret;
-	do {
-		ret = ioctl(ring->fd, IOCTL_KGSL_DEVICE_WAITTIMESTAMP, &req);
-	} while ((ret == -1) && ((errno == EINTR) || (errno == EAGAIN)));
-	if (ret)
-		ErrorF("waittimestamp failed! %d (%s)\n", ret, strerror(errno));
-}
-
-static Bool
-getprop(int fd, enum kgsl_property_type type, void *value, int sizebytes)
-{
-	struct kgsl_device_getproperty req = {
-			.type = type,
-			.value = value,
-			.sizebytes = sizebytes,
-	};
-	return ioctl(fd, IOCTL_KGSL_DEVICE_GETPROPERTY, &req) == 0;
-}
-
-#define GETPROP(fd, prop, x) do { \
-	if (!getprop((fd), KGSL_PROP_##prop, &(x), sizeof(x))) {			\
-		ERROR_MSG("failed to get property: " #prop);					\
-		return FALSE;													\
-	} } while (0)
 
 Bool
 MSMSetupAccel(ScreenPtr pScreen)
 {
 	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
 	MSMPtr pMsm = MSMPTR(pScrn);
-	int int_waits;
-	struct kgsl_devinfo devinfo;
-	struct kgsl_version version;
-	int kgsl_3d0_fd, kgsl_2d0_fd, kgsl_2d1_fd;
 
-	DEBUG_MSG("setup-accel");
-
-	/* possibly we don't need all of these.. I'm just following
-	 * the sequence logged from libC2D2..
-	 */
-	kgsl_3d0_fd = open("/dev/kgsl-3d0", O_RDWR);
-	kgsl_2d0_fd = open("/dev/kgsl-2d0", O_RDWR);
-	kgsl_2d1_fd = open("/dev/kgsl-2d1", O_RDWR);
-
-	if ((kgsl_3d0_fd < 0) || (kgsl_2d0_fd < 0) || (kgsl_2d1_fd < 0)) {
+	pMsm->pipe = fd_pipe_new(pMsm->dev, FD_PIPE_2D);
+	if (!pMsm->pipe) {
 		ERROR_MSG("fail!");
 		return FALSE;
 	}
 
-	pMsm->kgsl_3d0_fd = kgsl_3d0_fd;
-
-	GETPROP(kgsl_3d0_fd, INTERRUPT_WAITS, int_waits);
-	GETPROP(kgsl_3d0_fd, DEVICE_INFO,     devinfo);
-	GETPROP(kgsl_3d0_fd, VERSION,         version);
-
-	INFO_MSG("Accel Info:");
-	INFO_MSG(" Chip-id:         %d.%d.%d.%d",
-			(devinfo.chip_id >> 24) & 0xff,
-			(devinfo.chip_id >> 16) & 0xff,
-			(devinfo.chip_id >>  8) & 0xff,
-			(devinfo.chip_id >>  0) & 0xff);
-	INFO_MSG(" Device-id:       %d", devinfo.device_id);
-	INFO_MSG(" GPU-id:          %d", devinfo.gpu_id);
-	INFO_MSG(" MMU enabled:     %d", devinfo.mmu_enabled);
-	INFO_MSG(" Interrupt waits: %d", int_waits);
-	INFO_MSG(" GMEM Base addr:  0x%08x", devinfo.gmem_gpubaseaddr);
-	INFO_MSG(" GMEM size:       0x%08x", devinfo.gmem_sizebytes);
-	INFO_MSG(" Driver version:  %d.%d", version.drv_major, version.drv_minor);
-	INFO_MSG(" Device version:  %d.%d", version.dev_major, version.dev_minor);
-
-	pMsm->rings[0] = kgsl_ringbuffer_init(pScrn, kgsl_2d0_fd);
-	pMsm->rings[1] = kgsl_ringbuffer_init(pScrn, kgsl_2d1_fd);
-
 	/* Make a buffer object for the framebuffer so that the GPU MMU
 	 * can use it
 	 */
-	pMsm->fbBo = msm_drm_bo_create_fb(pMsm, pMsm->fd, pMsm->fixed_info.smem_len);
+	pMsm->scanout = fd_bo_from_fbdev(pMsm->pipe, pMsm->fd, pMsm->fixed_info.smem_len);
 
-	/* for now, just using a single ringbuffer.. maybe we need to do this
-	 * for both?
+	/* for now, just using a single ringbuffer..
 	 */
-	kgsl_ringbuffer_start(pMsm->rings[1]);
+	ringbuffer_start(pScrn);
 
 	return MSMSetupExa(pScreen);
 }

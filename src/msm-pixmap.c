@@ -32,57 +32,12 @@
 #endif
 
 #include "msm.h"
-#include "msm-drm.h"
-
-unsigned int
-msm_pixmap_gpuptr(PixmapPtr pixmap)
-{
-	ScreenPtr pScreen = pixmap->drawable.pScreen;
-	MSMPtr pMsm = MSMPTR_FROM_PIXMAP(pixmap);
-
-	if (msm_pixmap_in_gem(pixmap)) {
-		struct msm_drm_bo *bo = msm_get_pixmap_bo(pixmap);
-		if (!msm_drm_bo_bind_gpu(bo)) {
-			return (unsigned int) bo->gpuaddr[bo->active];
-		}
-	}
-
-	/* Return the physical address of the framebuffer */
-	/* If we have a BO for the framebuffer, then bind it
-       and return the adress, otherwise revert back to the
-       physical address */
-
-	if ((pScreen->GetScreenPixmap(pScreen) == pixmap) ||
-			(pMsm->rotatedPixmap == pixmap)) {
-		unsigned int offset = 0;
-		if(pMsm->rotatedPixmap == pixmap)
-			offset = pMsm->mode_info.yres * pMsm->fixed_info.line_length;
-		if (pMsm->fbBo && !msm_drm_bo_bind_gpu(pMsm->fbBo))
-			return (unsigned int) (pMsm->fbBo->gpuaddr[0] + offset);
-
-		return ((unsigned int)pMsm->fixed_info.smem_start + offset);
-	}
-
-	return 0;
-}
 
 void *
 msm_pixmap_hostptr(PixmapPtr pixmap)
 {
-	ScreenPtr pScreen = pixmap->drawable.pScreen;
-	MSMPtr pMsm = MSMPTR_FROM_PIXMAP(pixmap);
-
-	if (msm_pixmap_in_gem(pixmap)) {
-		struct msm_drm_bo *bo = msm_get_pixmap_bo(pixmap);
-		return (void *) bo->virtaddr[bo->active];
-	}
-
-	/* Return virtual address of the framebuffer */
-
-	if (pScreen->GetScreenPixmap(pScreen) == pixmap)
-		return pMsm->curVisiblePtr;
-
-	return (void *) pixmap->devPrivate.ptr;
+	struct fd_bo *bo = msm_get_pixmap_bo(pixmap);
+	return fd_bo_map(bo);
 }
 
 int
@@ -117,19 +72,13 @@ msm_pixmap_in_gem(PixmapPtr pix)
 	return FALSE;
 }
 
-struct msm_drm_bo *
+struct fd_bo *
 msm_get_pixmap_bo(PixmapPtr pix)
 {
 	struct msm_pixmap_priv *priv = exaGetPixmapDriverPrivate(pix);
 
-	if (priv && priv->bo) {
-		/* When this fucntion is called then ensure it gets
-	  allocated - if this function ever gets used outside of
-	  EXA this could cause problems */
-
-		msm_drm_bo_alloc(priv->bo);
+	if (priv && priv->bo)
 		return priv->bo;
-	}
 
 	/* TODO: perhaps the special handling for scanout pixmap should be done
 	 * elsewhere so it isn't in a hot path.. ie. when the scanout buffer is
@@ -140,8 +89,7 @@ msm_get_pixmap_bo(PixmapPtr pix)
 		MSMPtr pMsm = MSMPTR_FROM_PIXMAP(pix);
 		// TODO .. how to handle offset for rotated pixmap.. worry about that later
 		if (pScreen->GetScreenPixmap(pScreen) == pix) {
-			priv->bo = pMsm->fbBo;
-			msm_drm_bo_alloc(priv->bo);
+			priv->bo = pMsm->scanout;
 			return priv->bo;
 		}
 
