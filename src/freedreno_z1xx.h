@@ -37,6 +37,9 @@ enum z1xx_reg {
 	G2D_FOREGROUND           = 0x0a,
 	G2D_BACKGROUND           = 0x0b,
 	G2D_ALPHABLEND           = 0x0c,
+	G2D_ROP                  = 0x0d,
+	G2D_CONFIG               = 0x0e,
+	G2D_INPUT                = 0x0f,
 	G2D_BLENDERCFG           = 0x11,
 	G2D_CONST0               = 0xb0,
 	G2D_CONST1               = 0xb1,
@@ -50,9 +53,17 @@ enum z1xx_reg {
 	G2D_XY                   = 0xf0,
 	G2D_WIDTHHEIGHT          = 0xf1,
 	G2D_SXY                  = 0xf2,
+	G2D_IDLE                 = 0xfe,
 	G2D_COLOR                = 0xff,
 
+	VGV1_DIRTYBASE           = 0x29,
+	VGV1_CBASE1              = 0x2a,
+	VGV1_UBASE2              = 0x2b,
+
+	VGV3_NEXTADDR            = 0x75,
+	VGV3_NEXTCMD             = 0x76,
 	VGV3_WRITERAW            = 0x7c,
+	VGV3_LAST                = 0x7f,
 
 	GRADW_TEXCFG             = 0xd1,
 	GRADW_TEXSIZE            = 0xd2,
@@ -73,5 +84,36 @@ static inline uint32_t REGM(enum z1xx_reg reg, uint8_t count)
 {
 	return REG(VGV3_WRITERAW) | (count << 8) | reg;
 }
+
+/* bits for G2D_IDLE: */
+#define G2D_IDLE_IRQ         (1 << 0)
+#define G2D_IDLE_BCFLUSH     (1 << 1)
+#define G2D_IDLE_V3          (1 << 2)
+
+/* bits for G2D_CONFIG: */
+#define G2D_CONFIG_DST                 (1 << 0)
+#define G2D_CONFIG_SRC1                (1 << 1)
+#define G2D_CONFIG_SRC2                (1 << 2)
+#define G2D_CONFIG_SRC3                (1 << 3)
+#define G2D_CONFIG_SRCCK               (1 << 4)
+#define G2D_CONFIG_DSTCK               (1 << 5)
+#define G2D_CONFIG_ROTATE(val)         (((val) & 0x3) << 6)
+#define G2D_CONFIG_OBS_GAMMA           (1 << 8)
+#define G2D_CONFIG_IGNORECKALPHA       (1 << 9)
+#define G2D_CONFIG_DITHER              (1 << 10)
+#define G2D_CONFIG_WRITESRGB           (1 << 11)
+#define G2D_CONFIG_ARGBMASK(val)       (((val) & 0xf) << 12)
+#define G2D_CONFIG_ALPHATEX            (1 << 16)
+#define G2D_CONFIG_PALMLINES           (1 << 17)
+#define G2D_CONFIG_NOLASTPIXEL         (1 << 18)
+#define G2D_CONFIG_NOPROTECT           (1 << 19)
+
+/* bits for G2D_INPUT: */
+#define G2D_INPUT_COLOR                (1 << 0)
+#define G2D_INPUT_SCOORD1              (1 << 1)
+#define G2D_INPUT_SCOORD2              (1 << 2)
+#define G2D_INPUT_COPYCOORD            (1 << 3)
+#define G2D_INPUT_VGMODE               (1 << 4)
+#define G2D_INPUT_LINEMODE             (1 << 5)
 
 #endif /* FREEDRENO_Z1XX_H_ */

@@ -26,16 +26,21 @@
 
 #include "msm.h"
 #include "freedreno_ringbuffer.h"
+#include "freedreno_z1xx.h"
 
 #define LOG_DWORDS 0
 
 #define STATE_SIZE  0x140
 
+void ring_pre(struct fd_ringbuffer *ring);
+void ring_post(struct fd_ringbuffer *ring);
+void next_ring(MSMPtr pMsm);
+
 static inline void
 OUT_RING(struct fd_ringbuffer *ring, unsigned data)
 {
 	if (LOG_DWORDS) {
-		ErrorF("ring[%p]: OUT_RING   %04x:  %08x\n", ring->pipe,
+		ErrorF("ring[%p]: OUT_RING   %04x:  %08x\n", ring,
 				(uint32_t)(ring->cur - ring->last_start), data);
 	}
 	fd_ringbuffer_emit(ring, data);
@@ -44,56 +49,55 @@ OUT_RING(struct fd_ringbuffer *ring, unsigned data)
 static inline void
 OUT_RELOC(struct fd_ringbuffer *ring, struct fd_bo *bo)
 {
-	/* we don't really do reloc's, so just emits the gpuaddr for a bo..
-	 * (but someday we might do something more clever..)
-	 */
 	if (LOG_DWORDS) {
-		ErrorF("ring[%p]: OUT_RELOC  %04x:  %p\n", ring->pipe,
+		ErrorF("ring[%p]: OUT_RELOC  %04x:  %p\n", ring,
 				(uint32_t)(ring->cur - ring->last_start), bo);
 	}
 	fd_ringbuffer_emit_reloc(ring, bo, 0);
 }
 
 static inline void
-BEGIN_RING(struct fd_ringbuffer *ring, int size)
+FIRE_RING(MSMPtr pMsm)
 {
-#if 0
-	/* current kernel side just expects one cmd packet per ISSUEIBCMDS: */
-	size += 11;       /* common header/footer */
-
-	if ((ring->cur + size) > ring->end)
-		fd_ringbuffer_flush(ring, size);
-#endif
-
-	/* each packet seems to carry the address/size of next (w/ 0x00000000
-	 * meaning no branch, next packet follows).  Each cmd packet is preceded
-	 * by a dummy packet to give the size of the next..
-	 */
-	OUT_RING (ring, 0x7c000275);
-	OUT_RING (ring, 0x00000000);	/* next address */
-	OUT_RING (ring, 0x00000000);	/* next size */
-	OUT_RING (ring, 0x7c000134);
-	OUT_RING (ring, 0x00000000);
-
-	OUT_RING (ring, 0x7c000275);
-	OUT_RING (ring, 0x00000000);	/* fixed up by kernel */
-	OUT_RING (ring, 0x00000000);	/* fixed up by kernel */
+	struct fd_ringbuffer *ring = pMsm->ring.ring;
+	if (pMsm->ring.fire) {
+		ring_post(ring);
+		fd_ringbuffer_flush(ring);
+		next_ring(pMsm);
+		fd_pipe_wait(pMsm->pipe, fd_ringbuffer_timestamp(pMsm->ring.ring));
+		pMsm->ring.timestamp++;
+//		fd_pipe_timestamp(pMsm->pipe, &pMsm->ring.actual_timestamp);
+//		ErrorF("FLUSH: actual_timestamp=%u, expected_timestamp=%u\n",
+//			pMsm->ring.actual_timestamp, pMsm->ring.expected_timestamp);
+		ring_pre(pMsm->ring.ring);
+		pMsm->ring.fire = FALSE;
+	}
 }
 
 static inline void
-END_RING(struct fd_ringbuffer *ring)
+BEGIN_RING(MSMPtr pMsm, int size)
 {
-	/* This appears to be common end of packet: */
-	OUT_RING(ring, 0xfe000003);
-	OUT_RING(ring, 0x7f000000);
-	OUT_RING(ring, 0x7f000000);
+	struct fd_ringbuffer *ring = pMsm->ring.ring;
 
-	/* We only support on cmd at a time until issueibcmds ioctl is fixed
-	 * to work sanely..
-	 */
-	fd_ringbuffer_flush(ring);
-	fd_ringbuffer_reset(ring);
+	if (LOG_DWORDS) {
+		ErrorF("ring[%p]: BEGIN_RING %d\n", ring, size);
+	}
+
+	/* current kernel side just expects one cmd packet per ISSUEIBCMDS: */
+	size += 11;       /* common header/footer */
+
+	if (((ring->cur - ring->last_start) + size) > 0x2ff)
+		FIRE_RING(pMsm);
 }
 
+static inline void
+END_RING(MSMPtr pMsm)
+{
+	struct fd_ringbuffer *ring = pMsm->ring.ring;
+	if (LOG_DWORDS) {
+		ErrorF("ring[%p]: END_RING\n", ring);
+	}
+	pMsm->ring.fire = TRUE;
+}
 
 #endif /* MSM_ACCEL_H_ */

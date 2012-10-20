@@ -42,8 +42,8 @@
 
 #define xFixedtoDouble(_f) (double) ((_f)/(double) xFixed1)
 
-#define ENABLE_EXA_TRACE				1
-#define ENABLE_SW_FALLBACK_REPORTS		1
+#define ENABLE_EXA_TRACE				0
+#define ENABLE_SW_FALLBACK_REPORTS		0
 
 #define MSM_LOCALS(pDraw) \
 	ScrnInfoPtr pScrn = xf86Screens[((DrawablePtr)(pDraw))->pScreen->myNum]; \
@@ -53,13 +53,13 @@
 
 #define TRACE_EXA(fmt, ...) do {									\
 		if (ENABLE_EXA_TRACE)										\
-			DEBUG_MSG(fmt, ##__VA_ARGS__);							\
+			ErrorF("EXA: " fmt"\n", ##__VA_ARGS__);					\
 	} while (0)
 
 #define EXA_FAIL_IF(cond) do {										\
 		if (cond) {													\
 			if (ENABLE_SW_FALLBACK_REPORTS) {						\
-				DEBUG_MSG("fallback: " #cond);						\
+				ErrorF("FALLBACK: " #cond"\n");						\
 			}														\
 			return FALSE;											\
 		}															\
@@ -73,13 +73,28 @@ struct exa_state {
 	const uint32_t *op_dwords;
 	PixmapPtr src, mask;
 	PicturePtr dstpic, srcpic, maskpic;
+
+	uint32_t input;
 };
+
+/* input fields seem to be enabled/disabled in a certain order: */
+static uint32_t iena(struct exa_state *exa, uint32_t enable)
+{
+	exa->input |= enable;
+	return exa->input;
+}
+
+static uint32_t idis(struct exa_state *exa, uint32_t enable)
+{
+	exa->input &= ~enable;
+	return exa->input;
+}
 
 /* NOTE ARGB and A8 seem to be treated the same when it comes to the
  * composite-op dwords:
  */
 static const uint32_t composite_op_dwords[4][PictOpAdd+1][4] = {
-	{ /* xRGB->xRGB */
+	{ /* xRGB->xRGB */         /*           G2D_BLEND_A0            G2D_BLEND_C0 */
 		[PictOpSrc]          = { 0x7c000114, 0x10002010, 0x00000000, 0x18012210 },
 		[PictOpIn]           = { 0x7c000114, 0xb0100004, 0x00000000, 0x18110a04 },
 		[PictOpOut]          = { 0x7c000114, 0xb0102004, 0x00000000, 0x18112a04 },
@@ -230,6 +245,8 @@ out_dstpix(struct fd_ringbuffer *ring, PixmapPtr pix)
 	 */
 	p = (msm_pixmap_get_pitch(pix) / 32) & 0xfff;
 
+	TRACE_EXA("DST: %p, %dx%d,%d,%d", bo, w, h, p, pix->drawable.depth);
+
 	/* not quite sure if these first three dwords belong here, but all
 	 * blits seem to start with these immediately before the dst surf
 	 * parameters, so I'm putting them here for now
@@ -244,7 +261,6 @@ out_dstpix(struct fd_ringbuffer *ring, PixmapPtr pix)
 	OUT_RING (ring, REG(G2D_ALPHABLEND) | 0x0);
 	OUT_RING (ring, REG(G2D_BLENDERCFG) | 0x0);
 	OUT_RING (ring, REG(G2D_GRADIENT) | 0x030000);
-	// TODO check if 13 bit
 	OUT_RING (ring, REG(GRADW_TEXSIZE) | ((h & 0xfff) << 13) | (w & 0xfff));
 	OUT_RING (ring, REG(G2D_CFG0) | p |
 			((pix->drawable.depth == 8) ? 0xe000 : 0x7000));
@@ -257,8 +273,8 @@ out_dstpix(struct fd_ringbuffer *ring, PixmapPtr pix)
 			((pix->drawable.depth == 8) ? 0xe000 : 0x7000));
 	OUT_RING (ring, 0xd5000000);
 	OUT_RING (ring, REG(G2D_ALPHABLEND) | 0x0);
-	OUT_RING (ring, REG(G2D_SCISSORX) | ((w - 1) & 0xfff) << 12);
-	OUT_RING (ring, REG(G2D_SCISSORY) | ((h - 1) & 0xfff) << 12);
+	OUT_RING (ring, REG(G2D_SCISSORX) | (w & 0xfff) << 12);
+	OUT_RING (ring, REG(G2D_SCISSORY) | (h & 0xfff) << 12);
 }
 
 static inline void
@@ -274,6 +290,8 @@ out_srcpix(struct fd_ringbuffer *ring, PixmapPtr pix)
 	 * max size yet, but I think 11 or 12 bits..
 	 */
 	p = (msm_pixmap_get_pitch(pix) / 32) & 0xfff;
+
+	TRACE_EXA("SRC: %p, %dx%d,%d,%d", bo, w, h, p, pix->drawable.depth);
 
 	OUT_RING (ring, REGM(GRADW_TEXCFG, 3));
 	OUT_RING (ring, 0x40000000 | p |   /* GRADW_TEXCFG */
@@ -308,9 +326,6 @@ static Bool
 MSMPrepareSolid(PixmapPtr pPixmap, int alu, Pixel planemask, Pixel fg)
 {
 	MSM_LOCALS(pPixmap);
-
-	TRACE_EXA("%p <- alu=%x, planemask=%08x, fg=%08x",
-			pPixmap, alu, (unsigned int)planemask, (unsigned int)fg);
 
 	EXA_FAIL_IF(planemask != FB_ALLONES);
 	EXA_FAIL_IF(alu != GXcopy);
@@ -356,22 +371,21 @@ MSMSolid(PixmapPtr pPixmap, int x1, int y1, int x2, int y2)
 {
 	MSM_LOCALS(pPixmap);
 
-	TRACE_EXA("x1=%d\ty1=%d\tx2=%d\ty2=%d", x1, y1, x2, y2);
+	TRACE_EXA("SOLID: x1=%d\ty1=%d\tx2=%d\ty2=%d\tfill=%08x",
+			x1, y1, x2, y2, exa->fill);
 
-	BEGIN_RING(ring, 23);
+	BEGIN_RING(pMsm, 23);
 	out_dstpix(ring, pPixmap);
-	OUT_RING  (ring, 0x0f000000);
-	OUT_RING  (ring, 0x0f000000);
-	OUT_RING  (ring, 0x0f000001);
-	OUT_RING  (ring, 0x0e000000);
+	OUT_RING  (ring, REG(G2D_INPUT) | idis(exa, G2D_INPUT_SCOORD1));
+	OUT_RING  (ring, REG(G2D_INPUT) | iena(exa, 0x0));
+	OUT_RING  (ring, REG(G2D_INPUT) | iena(exa, G2D_INPUT_COLOR));
+	OUT_RING  (ring, REG(G2D_CONFIG) | 0x0);
 	OUT_RING  (ring, REGM(G2D_XY, 2));
 	OUT_RING  (ring, ((x1 & 0xffff) << 16) | (y1 & 0xffff));   /* G2D_XY */
 	OUT_RING  (ring, (((x2 - x1) & 0xffff) << 16) | ((y2 - y1) & 0xffff)); /* G2D_WIDTHHEIGHT */
 	OUT_RING  (ring, REGM(G2D_COLOR, 1));
 	OUT_RING  (ring, exa->fill);
-	END_RING  (ring);
-
-	fd_pipe_wait(pMsm->pipe, fd_ringbuffer_timestamp(ring));
+	END_RING  (pMsm);
 }
 
 /**
@@ -429,12 +443,6 @@ MSMPrepareCopy(PixmapPtr pSrcPixmap, PixmapPtr pDstPixmap, int dx, int dy,
 {
 	MSM_LOCALS(pDstPixmap);
 
-	TRACE_EXA("%p {%dx%d,%d} <- %p {%dx%d,%d}",
-			pDstPixmap, pDstPixmap->drawable.width,
-			pDstPixmap->drawable.height, pDstPixmap->devKind,
-			pSrcPixmap, pSrcPixmap->drawable.width,
-			pSrcPixmap->drawable.height, pSrcPixmap->devKind);
-
 	EXA_FAIL_IF(planemask != FB_ALLONES);
 	EXA_FAIL_IF(alu != GXcopy);
 
@@ -478,10 +486,10 @@ MSMCopy(PixmapPtr pDstPixmap, int srcX, int srcY, int dstX, int dstY,
 	MSM_LOCALS(pDstPixmap);
 	PixmapPtr pSrcPixmap = exa->src;
 
-	TRACE_EXA("srcX=%d\tsrcY=%d\tdstX=%d\tdstY=%d\twidth=%d\theight=%d",
+	TRACE_EXA("COPY: srcX=%d\tsrcY=%d\tdstX=%d\tdstY=%d\twidth=%d\theight=%d",
 			srcX, srcY, dstX, dstY, width, height);
 
-	BEGIN_RING(ring, 45);
+	BEGIN_RING(pMsm, 45);
 	out_dstpix(ring, pDstPixmap);
 	OUT_RING  (ring, REGM(G2D_FOREGROUND, 2));
 	OUT_RING  (ring, 0xff000000);      /* G2D_FOREGROUND */
@@ -491,15 +499,15 @@ MSMCopy(PixmapPtr pDstPixmap, int srcX, int srcY, int dstX, int dstY,
 	out_srcpix(ring, pSrcPixmap);
 	OUT_RING  (ring, 0xd5000000);
 	OUT_RING  (ring, 0xd0000000);
-	OUT_RING  (ring, 0x0f00000a);
-	OUT_RING  (ring, 0x0f00000a);
-	OUT_RING  (ring, 0x0f00000a);
-	OUT_RING  (ring, 0x0f00000a);
+	OUT_RING  (ring, REG(G2D_INPUT) | iena(exa, G2D_INPUT_SCOORD1));
+	OUT_RING  (ring, REG(G2D_INPUT) | iena(exa, 0));
+	OUT_RING  (ring, REG(G2D_INPUT) | idis(exa, G2D_INPUT_COLOR));
+	OUT_RING  (ring, REG(G2D_INPUT) | iena(exa, G2D_INPUT_COPYCOORD));
 	OUT_RING  (ring, 0xd0000000);
-	OUT_RING  (ring, 0x0f00000a);
-	OUT_RING  (ring, 0x0f00000a);
-	OUT_RING  (ring, 0x0f00000a);
-	OUT_RING  (ring, 0x0e000002);
+	OUT_RING  (ring, REG(G2D_INPUT) | iena(exa, 0));
+	OUT_RING  (ring, REG(G2D_INPUT) | iena(exa, 0));
+	OUT_RING  (ring, REG(G2D_INPUT) | iena(exa, 0));
+	OUT_RING  (ring, REG(G2D_CONFIG) | G2D_CONFIG_SRC1); /* we don't read from dst */
 	OUT_RING  (ring, REGM(G2D_XY, 3));
 	OUT_RING  (ring, (dstX & 0xffff) << 16 | (dstY & 0xffff));    /* G2D_XY */
 	OUT_RING  (ring, (width & 0xfff) << 16 | (height & 0xffff));  /* G2D_WIDTHHEIGHT */
@@ -510,9 +518,7 @@ MSMCopy(PixmapPtr pDstPixmap, int srcX, int srcY, int dstX, int dstY,
 	OUT_RING  (ring, 0xd0000000);
 	OUT_RING  (ring, 0xd0000000);
 	OUT_RING  (ring, 0xd0000000);
-	END_RING  (ring);
-
-	fd_pipe_wait(pMsm->pipe, fd_ringbuffer_timestamp(ring));
+	END_RING  (pMsm);
 }
 
 /**
@@ -564,12 +570,6 @@ MSMCheckComposite(int op, PicturePtr pSrcPicture, PicturePtr pMaskPicture,
 {
 	MSM_LOCALS(pDstPicture->pDrawable);
 	int idx = 0;
-
-	TRACE_EXA("op:%02d: %p {%08x, %d} <- %p {%08x, %d} (%p {%08x, %d})", op,
-			pDstPicture, pDstPicture->format, pDstPicture->repeat,
-			pSrcPicture, pSrcPicture->format, pSrcPicture->repeat,
-			pMaskPicture, pMaskPicture ? pMaskPicture->format : 0,
-			pMaskPicture ? pMaskPicture->repeat : 0);
 
 	// TODO proper handling for RGB vs BGR!
 
@@ -687,12 +687,6 @@ MSMPrepareComposite(int op, PicturePtr pSrcPicture, PicturePtr pMaskPicture,
 {
 	MSM_LOCALS(pDst);
 
-	TRACE_EXA("%p {%dx%d,%d} <- %p {%dx%d,%d} (%p {%dx%d,%d})",
-			pDst, pDst->drawable.width, pDst->drawable.height, pDst->devKind,
-			pSrc, pSrc->drawable.width, pSrc->drawable.height, pSrc->devKind,
-			pMask, pMask ? pMask->drawable.width : 0, pMask ? pMask->drawable.height : 0,
-			pMask ? pMask->devKind : 0);
-
 	// TODO revisit repeat..
 	EXA_FAIL_IF(pSrcPicture->repeat &&
 			((pSrc->drawable.width != 1) || (pSrc->drawable.height != 1)));
@@ -740,10 +734,13 @@ MSMComposite(PixmapPtr pDstPixmap, int srcX, int srcY, int maskX, int maskY,
 	PixmapPtr pSrcPixmap = exa->src;
 	PixmapPtr pMaskPixmap = exa->mask;
 
-	TRACE_EXA("srcX=%d\tsrcY=%d\tmaskX=%d\tmaskY=%d\tdstX=%d\tdstY=%d\twidth=%d\theight=%d",
-			srcX, srcY, maskX, maskY, dstX, dstY, width, height);
+	TRACE_EXA("COMPOSITE: srcX=%d\tsrcY=%d\tmaskX=%d\tmaskY=%d\t"
+			"dstX=%d\tdstY=%d\twidth=%d\theight=%d\t"
+			"srcformat=%08x\tdstformat=%08x",
+			srcX, srcY, maskX, maskY, dstX, dstY,
+			width, height, exa->srcpic->format, exa->dstpic->format);
 
-	BEGIN_RING(ring, 59);
+	BEGIN_RING(pMsm, 59);
 	out_dstpix(ring, pDstPixmap);
 
 	if (!PICT_FORMAT_A(exa->dstpic->format)) {
@@ -785,15 +782,17 @@ MSMComposite(PixmapPtr pDstPixmap, int srcX, int srcY, int maskX, int maskY,
 		OUT_RING  (ring, 0xd5000080);
 	}
 	OUT_RING  (ring, 0xd0000000);
-	OUT_RING  (ring, 0x0f00000a);
-	OUT_RING  (ring, 0x0f00000a);
-	OUT_RING  (ring, 0x0f00000a);
-	OUT_RING  (ring, 0x0f00000a);
+	OUT_RING  (ring, REG(G2D_INPUT) | iena(exa, G2D_INPUT_SCOORD1));
+	OUT_RING  (ring, REG(G2D_INPUT) | iena(exa, 0));
+	OUT_RING  (ring, REG(G2D_INPUT) | idis(exa, G2D_INPUT_COLOR));
+	OUT_RING  (ring, REG(G2D_INPUT) | iena(exa, G2D_INPUT_COPYCOORD));
 	OUT_RING  (ring, 0xd0000000);
-	OUT_RING  (ring, 0x0f00000a);
-	OUT_RING  (ring, 0x0f00000a);
-	OUT_RING  (ring, 0x0f00000a);
-	OUT_RING  (ring, 0x0e000003 | (pMaskPixmap ? 0x04 : 0));
+	OUT_RING  (ring, REG(G2D_INPUT) | iena(exa, 0));
+	OUT_RING  (ring, REG(G2D_INPUT) | iena(exa, 0));
+	OUT_RING  (ring, REG(G2D_INPUT) | iena(exa, 0));
+	OUT_RING  (ring, REG(G2D_CONFIG) |
+			G2D_CONFIG_DST | G2D_CONFIG_SRC1 |
+			(pMaskPixmap ? G2D_CONFIG_SRC2 : 0));
 	OUT_RING  (ring, REGM(G2D_XY, 3));
 	OUT_RING  (ring, (dstX & 0xffff) << 16 | (dstY & 0xffff));    /* G2D_XY */
 	OUT_RING  (ring, (width & 0xfff) << 16 | (height & 0xffff));  /* G2D_WIDTHHEIGHT */
@@ -804,9 +803,7 @@ MSMComposite(PixmapPtr pDstPixmap, int srcX, int srcY, int maskX, int maskY,
 	OUT_RING  (ring, 0xd0000000);
 	OUT_RING  (ring, 0xd0000000);
 	OUT_RING  (ring, 0xd0000000);
-	END_RING  (ring);
-
-	fd_pipe_wait(pMsm->pipe, fd_ringbuffer_timestamp(ring));
+	END_RING  (pMsm);
 }
 
 /**
@@ -847,7 +844,7 @@ MSMMarkSync(ScreenPtr pScreen)
 {
 	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
 	MSMPtr pMsm = MSMPTR(pScrn);
-	return fd_ringbuffer_timestamp(pMsm->ring.ring);
+	return pMsm->ring.timestamp;
 }
 
 
@@ -868,7 +865,9 @@ MSMWaitMarker(ScreenPtr pScreen, int marker)
 {
 	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
 	MSMPtr pMsm = MSMPTR(pScrn);
-	fd_pipe_wait(pMsm->pipe, marker);
+	FIRE_RING(pMsm);
+	TRACE_EXA("WAIT: %d", pMsm->ring.timestamp);
+	fd_pipe_wait(pMsm->pipe, pMsm->ring.timestamp);
 }
 
 static Bool

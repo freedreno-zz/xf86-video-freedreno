@@ -90,6 +90,8 @@ typedef struct _MSMRec
 	/* Place holder for the standard close screen function */
 	CloseScreenProcPtr CloseScreen;
 
+	ScreenBlockHandlerProcPtr BlockHandler;
+
 	Bool HWCursor;
 	int HWCursorState;
 	int defaultVsync;
@@ -104,8 +106,12 @@ typedef struct _MSMRec
 	 * way..
 	 */
 	struct {
+		int idx;
+		struct fd_ringbuffer *rings[4];
 		struct fd_ringbuffer *ring;
 		struct fd_bo *context_bos[3];
+		Bool fire;
+		uint32_t timestamp;
 	} ring;
 	struct fd_pipe *pipe;
 

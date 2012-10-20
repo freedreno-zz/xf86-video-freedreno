@@ -50,6 +50,7 @@
 #include "dixstruct.h"
 
 #include "msm.h"
+#include "msm-accel.h"
 
 #include <drm.h>
 #include "xf86drm.h"
@@ -97,6 +98,21 @@ static const OptionInfoRec MSMOptions[] = {
 
 // TODO make this a config option
 Bool msmDebug = TRUE;
+
+static void
+MSMBlockHandler (int i, pointer blockData, pointer pTimeout, pointer pReadmask)
+{
+	ScrnInfoPtr pScrn = xf86Screens[i];
+	ScreenPtr pScreen = pScrn->pScreen;
+	MSMPtr pMsm = MSMPTR(pScrn);
+
+	pScreen->BlockHandler = pMsm->BlockHandler;
+	(*pScreen->BlockHandler) (i, blockData, pTimeout, pReadmask);
+	pScreen->BlockHandler = MSMBlockHandler;
+
+	if (pScrn->vtSema)
+		FIRE_RING(pMsm);
+}
 
 static Bool
 MSMInitDRM(ScrnInfoPtr pScrn)
@@ -624,6 +640,7 @@ MSMCloseScreen(int scrnIndex, ScreenPtr pScreen)
 	/* Unmap the framebuffer memory */
 	munmap(pMsm->fbmem, pMsm->fixed_info.smem_len);
 
+	pScreen->BlockHandler = pMsm->BlockHandler;
 	pScreen->CloseScreen = pMsm->CloseScreen;
 
 	return (*pScreen->CloseScreen) (scrnIndex, pScreen);
@@ -777,6 +794,9 @@ MSMScreenInit(int scrnIndex, ScreenPtr pScreen, int argc, char **argv)
 
 	pMsm->CloseScreen = pScreen->CloseScreen;
 	pScreen->CloseScreen = MSMCloseScreen;
+
+	pMsm->BlockHandler = pScreen->BlockHandler;
+	pScreen->BlockHandler = MSMBlockHandler;
 
 	if (!xf86CrtcScreenInit(pScreen)) {
 		ERROR_MSG("CRTCScreenInit failed");

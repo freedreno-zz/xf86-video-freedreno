@@ -127,20 +127,47 @@ static const uint32_t initial_state[] = {
 		 0x00000000, 0x7c0001d5, 0x00000000, 0x7f000000,
 };
 
-static void
-ringbuffer_start(ScrnInfoPtr pScrn)
+void
+ring_pre(struct fd_ringbuffer *ring)
 {
-	MSMPtr pMsm = MSMPTR(pScrn);
+	/* each packet seems to carry the address/size of next (w/ 0x00000000
+	 * meaning no branch, next packet follows).  Each cmd packet is preceded
+	 * by a dummy packet to give the size of the next..
+	 */
+	OUT_RING (ring, REGM(VGV3_NEXTADDR, 2));
+	OUT_RING (ring, 0x00000000);	/* VGV3_NEXTADDR */
+	OUT_RING (ring, 0x00000000);	/* VGV3_NEXTCMD, fixed up on flush */
+	OUT_RING (ring, 0x7c000134);
+	OUT_RING (ring, 0x00000000);
+
+	OUT_RING (ring, REGM(VGV3_NEXTADDR, 2));
+	OUT_RING (ring, 0x00000000);	/* fixed up by kernel */
+	OUT_RING (ring, 0x00000000);	/* fixed up by kernel */
+}
+
+void
+ring_post(struct fd_ringbuffer *ring)
+{
+	/* This appears to be common end of packet: */
+	OUT_RING(ring, REG(G2D_IDLE) | G2D_IDLE_IRQ | G2D_IDLE_BCFLUSH);
+	OUT_RING(ring, REG(VGV3_LAST) | 0x0);
+	OUT_RING(ring, REG(VGV3_LAST) | 0x0);
+}
+
+void
+next_ring(MSMPtr pMsm)
+{
 	struct fd_ringbuffer *ring;
+	int idx = pMsm->ring.idx++ % ARRAY_SIZE(pMsm->ring.rings);
 
-	ring = pMsm->ring.ring = fd_ringbuffer_new(pMsm->pipe, 0x5000);
+	if (pMsm->ring.rings[idx]) {
+		ring = pMsm->ring.ring = pMsm->ring.rings[idx];
+		fd_ringbuffer_reset(ring);
+		return;
+	}
 
-	pMsm->ring.context_bos[0] = fd_bo_new(pMsm->dev, 0x1000,
-			DRM_FREEDRENO_GEM_TYPE_KMEM);
-	pMsm->ring.context_bos[1] = fd_bo_new(pMsm->dev, 0x9000,
-			DRM_FREEDRENO_GEM_TYPE_KMEM);
-	pMsm->ring.context_bos[2] = fd_bo_new(pMsm->dev, 0x81000,
-			DRM_FREEDRENO_GEM_TYPE_KMEM);
+	ring = pMsm->ring.ring = pMsm->ring.rings[idx] =
+			fd_ringbuffer_new(pMsm->pipe, 0x5000);
 
 	/* for now, until state packet is understood, just use a pre-canned
 	 * state captured from libC2D2 test, and fix up the gpu addresses
@@ -154,19 +181,6 @@ ringbuffer_start(ScrnInfoPtr pScrn)
 	OUT_RELOC (ring, pMsm->ring.context_bos[2]);
 
 	fd_ringbuffer_reset(ring);
-
-	BEGIN_RING(ring, 8);
-	OUT_RING  (ring, 0x7c000329);
-	OUT_RELOC (ring, pMsm->ring.context_bos[0]);
-	OUT_RELOC (ring, pMsm->ring.context_bos[1]);
-	OUT_RELOC (ring, pMsm->ring.context_bos[2]);
-	OUT_RING  (ring, 0x11000000);
-	OUT_RING  (ring, 0x10fff000);
-	OUT_RING  (ring, 0x10ffffff);
-	OUT_RING  (ring, 0x0d000404);
-	END_RING  (ring);
-
-	fd_pipe_wait(pMsm->pipe, fd_ringbuffer_timestamp(ring));
 }
 
 Bool
@@ -174,6 +188,7 @@ MSMSetupAccel(ScreenPtr pScreen)
 {
 	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
 	MSMPtr pMsm = MSMPTR(pScrn);
+	struct fd_ringbuffer *ring;
 
 	pMsm->pipe = fd_pipe_new(pMsm->dev, FD_PIPE_2D);
 	if (!pMsm->pipe) {
@@ -186,9 +201,28 @@ MSMSetupAccel(ScreenPtr pScreen)
 	 */
 	pMsm->scanout = fd_bo_from_fbdev(pMsm->pipe, pMsm->fd, pMsm->fixed_info.smem_len);
 
-	/* for now, just using a single ringbuffer..
-	 */
-	ringbuffer_start(pScrn);
+	pMsm->ring.context_bos[0] = fd_bo_new(pMsm->dev, 0x1000,
+			DRM_FREEDRENO_GEM_TYPE_KMEM);
+	pMsm->ring.context_bos[1] = fd_bo_new(pMsm->dev, 0x9000,
+			DRM_FREEDRENO_GEM_TYPE_KMEM);
+	pMsm->ring.context_bos[2] = fd_bo_new(pMsm->dev, 0x81000,
+			DRM_FREEDRENO_GEM_TYPE_KMEM);
+
+	next_ring(pMsm);
+
+	ring = pMsm->ring.ring;
+	ring_pre(ring);
+
+	BEGIN_RING(pMsm, 8);
+	OUT_RING  (ring, REGM(VGV1_DIRTYBASE, 3));
+	OUT_RELOC (ring, pMsm->ring.context_bos[0]); /* VGV1_DIRTYBASE */
+	OUT_RELOC (ring, pMsm->ring.context_bos[1]); /* VGV1_CBASE1 */
+	OUT_RELOC (ring, pMsm->ring.context_bos[2]); /* VGV1_UBASE2 */
+	OUT_RING  (ring, 0x11000000);
+	OUT_RING  (ring, 0x10fff000);
+	OUT_RING  (ring, 0x10ffffff);
+	OUT_RING  (ring, 0x0d000404);
+	END_RING  (pMsm);
 
 	return MSMSetupExa(pScreen);
 }
