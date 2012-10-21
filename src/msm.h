@@ -87,6 +87,8 @@ typedef struct _MSMRec
 	/* EXA driver structure */
 	ExaDriverPtr pExa;
 
+	Bool dri;
+
 	/* Place holder for the standard close screen function */
 	CloseScreenProcPtr CloseScreen;
 
@@ -100,6 +102,7 @@ typedef struct _MSMRec
 	int drmFD;
 
 	struct fd_device *dev;
+	char *deviceName;
 
 	/* for now just a single ringbuffer.. not sure if we need more..
 	 * probably would like more until context restore works in a sane
@@ -139,6 +142,8 @@ struct msm_pixmap_priv {
 
 Bool MSMSetupAccel(ScreenPtr pScreen);
 Bool MSMSetupExa(ScreenPtr);
+Bool MSMDRI2ScreenInit(ScreenPtr pScreen);
+void MSMDRI2CloseScreen(ScreenPtr pScreen);
 void MSMSetCursorPosition(MSMPtr pMsm, int x, int y);
 void MSMCursorEnable(MSMPtr pMsm, Bool enable);
 void MSMCursorLoadARGB(MSMPtr pMsm, CARD32 * image);

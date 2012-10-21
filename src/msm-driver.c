@@ -128,6 +128,8 @@ MSMInitDRM(ScrnInfoPtr pScrn)
 
 	pMsm->dev = fd_device_new(pMsm->drmFD);
 
+	pMsm->deviceName = drmGetDeviceNameFromFd(pMsm->drmFD);
+
 	return TRUE;
 }
 
@@ -629,6 +631,11 @@ MSMCloseScreen(int scrnIndex, ScreenPtr pScreen)
 	MSMPtr pMsm = MSMPTR(pScrn);
 
 	DEBUG_MSG("close screen");
+
+	/* Close DRI2 */
+	if (pMsm->dri) {
+		MSMDRI2CloseScreen(pScreen);
+	}
 
 	/* Close EXA */
 	if (pMsm->pExa) {

@@ -11,6 +11,7 @@ freedreno_drv_la_SOURCES = \
 	msm-driver.c \
 	msm-accel.c \
 	msm-exa.c \
+	msm-dri2.c \
 	msm-output.c \
 	msm-display.c \
 	msm-cursor.c \

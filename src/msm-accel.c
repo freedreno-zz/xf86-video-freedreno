@@ -188,6 +188,7 @@ MSMSetupAccel(ScreenPtr pScreen)
 {
 	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
 	MSMPtr pMsm = MSMPTR(pScrn);
+	Bool ret;
 	struct fd_ringbuffer *ring;
 
 	pMsm->pipe = fd_pipe_new(pMsm->dev, FD_PIPE_2D);
@@ -224,5 +225,9 @@ MSMSetupAccel(ScreenPtr pScreen)
 	OUT_RING  (ring, 0x0d000404);
 	END_RING  (pMsm);
 
-	return MSMSetupExa(pScreen);
+	ret = MSMSetupExa(pScreen);
+	if (ret) {
+		pMsm->dri = MSMDRI2ScreenInit(pScreen);
+	}
+	return ret;
 }
