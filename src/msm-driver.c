@@ -51,6 +51,7 @@
 
 #include "msm.h"
 #include "msm-accel.h"
+#include "compat-api.h"
 
 #include <drm.h>
 #include "xf86drm.h"
@@ -100,14 +101,14 @@ static const OptionInfoRec MSMOptions[] = {
 Bool msmDebug = TRUE;
 
 static void
-MSMBlockHandler (int i, pointer blockData, pointer pTimeout, pointer pReadmask)
+MSMBlockHandler (BLOCKHANDLER_ARGS_DECL)
 {
-	ScrnInfoPtr pScrn = xf86Screens[i];
-	ScreenPtr pScreen = pScrn->pScreen;
+	SCREEN_PTR(arg);
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	MSMPtr pMsm = MSMPTR(pScrn);
 
 	pScreen->BlockHandler = pMsm->BlockHandler;
-	(*pScreen->BlockHandler) (i, blockData, pTimeout, pReadmask);
+	(*pScreen->BlockHandler) (BLOCKHANDLER_ARGS);
 	pScreen->BlockHandler = MSMBlockHandler;
 
 	if (pScrn->vtSema)
@@ -253,7 +254,7 @@ MSMPreInit(ScrnInfoPtr pScrn, int flags)
 {
 	MSMPtr pMsm;
 	EntityInfoPtr pEnt;
-	char *dev, *str;
+	const char *dev, *str;
 	int mdpver, panelid;
 	int depth, fbbpp;
 	rgb defaultWeight = { 0, 0, 0 };
@@ -624,7 +625,7 @@ MSMSaveScreen(ScreenPtr pScreen, int mode)
 }
 
 static Bool
-MSMCloseScreen(int scrnIndex, ScreenPtr pScreen)
+MSMCloseScreen(CLOSE_SCREEN_ARGS_DECL)
 {
 	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
 
@@ -650,14 +651,13 @@ MSMCloseScreen(int scrnIndex, ScreenPtr pScreen)
 	pScreen->BlockHandler = pMsm->BlockHandler;
 	pScreen->CloseScreen = pMsm->CloseScreen;
 
-	return (*pScreen->CloseScreen) (scrnIndex, pScreen);
+	return (*pScreen->CloseScreen)(CLOSE_SCREEN_ARGS);
 }
 
 static Bool
-MSMScreenInit(int scrnIndex, ScreenPtr pScreen, int argc, char **argv)
+MSMScreenInit(SCREEN_INIT_ARGS_DECL)
 {
 	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
-
 	MSMPtr pMsm = MSMPTR(pScrn);
 
 	DEBUG_MSG("screen-init");
@@ -814,7 +814,7 @@ MSMScreenInit(int scrnIndex, ScreenPtr pScreen, int argc, char **argv)
 }
 
 static Bool
-MSMSwitchMode(int scrnIndex, DisplayModePtr mode, int flags)
+MSMSwitchMode(SWITCH_MODE_ARGS_DECL)
 {
 	/* FIXME:  We should only have the one mode, so we shouldn't ever call
 	 * this function - regardless, it needs to be stubbed - so what
@@ -824,7 +824,7 @@ MSMSwitchMode(int scrnIndex, DisplayModePtr mode, int flags)
 }
 
 static Bool
-MSMEnterVT(int ScrnIndex, int flags)
+MSMEnterVT(VT_FUNC_ARGS_DECL)
 {
 	/* Nothing to do here yet - there might be some triggers that we need
 	 * to throw at the framebuffer */
@@ -832,7 +832,7 @@ MSMEnterVT(int ScrnIndex, int flags)
 }
 
 static void
-MSMLeaveVT(int ScrnIndex, int flags)
+MSMLeaveVT(VT_FUNC_ARGS_DECL)
 {
 }
 
@@ -857,7 +857,7 @@ MSMProbe(DriverPtr drv, int flags)
 {
 	GDevPtr *sections;
 	int nsects;
-	char *dev;
+	const char *dev;
 
 	Bool foundScreen = FALSE;
 

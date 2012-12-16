@@ -41,7 +41,9 @@
 #include <freedreno_drmif.h>
 #include <freedreno_ringbuffer.h>
 
-#define ARRAY_SIZE(a) (sizeof((a)) / (sizeof(*(a))))
+#ifndef ARRAY_SIZE
+#  define ARRAY_SIZE(a) (sizeof((a)) / (sizeof(*(a))))
+#endif
 
 /* This enumerates all of the available options */
 
