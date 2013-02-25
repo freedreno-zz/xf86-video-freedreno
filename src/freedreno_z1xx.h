@@ -53,6 +53,7 @@ enum z1xx_reg {
 	G2D_XY                   = 0xf0,
 	G2D_WIDTHHEIGHT          = 0xf1,
 	G2D_SXY                  = 0xf2,
+	G2D_SXY2                 = 0xf3,
 	G2D_IDLE                 = 0xfe,
 	G2D_COLOR                = 0xff,
 
@@ -68,6 +69,25 @@ enum z1xx_reg {
 	GRADW_TEXCFG             = 0xd1,
 	GRADW_TEXSIZE            = 0xd2,
 	GRADW_TEXBASE            = 0xd3,
+	GRADW_TEXCFG2            = 0xd5,
+};
+
+enum g2d_format {
+	GRADW_1         = 0,
+	GRADW_1BW       = 1,
+	GRADW_4         = 2,
+	GRADW_8         = 3,
+	GRADW_4444      = 4,
+	GRADW_1555      = 5,
+	GRADW_0565      = 6,
+	GRADW_8888      = 7,
+	GRADW_YUY2      = 8,
+	GRADW_UYVY      = 9,
+	GRADW_YVYU      = 10,
+	GRADW_4444_RGBA = 11,
+	GRADW_5551_RGBA = 12,
+	GRADW_8888_RGBA = 13,
+	GRADW_A8        = 14,
 };
 
 /* used to write one register.. at most 24 bits or maybe less, register
@@ -85,12 +105,18 @@ static inline uint32_t REGM(enum z1xx_reg reg, uint8_t count)
 	return REG(VGV3_WRITERAW) | (count << 8) | reg;
 }
 
-/* bits for G2D_IDLE: */
+
+/*
+ * Bits for G2D_IDLE:
+ */
 #define G2D_IDLE_IRQ         (1 << 0)
 #define G2D_IDLE_BCFLUSH     (1 << 1)
 #define G2D_IDLE_V3          (1 << 2)
 
-/* bits for G2D_CONFIG: */
+
+/*
+ * Bits for G2D_CONFIG:
+ */
 #define G2D_CONFIG_DST                 (1 << 0)
 #define G2D_CONFIG_SRC1                (1 << 1)
 #define G2D_CONFIG_SRC2                (1 << 2)
@@ -108,12 +134,75 @@ static inline uint32_t REGM(enum z1xx_reg reg, uint8_t count)
 #define G2D_CONFIG_NOLASTPIXEL         (1 << 18)
 #define G2D_CONFIG_NOPROTECT           (1 << 19)
 
-/* bits for G2D_INPUT: */
+
+/*
+ * Bits for G2D_INPUT:
+ */
 #define G2D_INPUT_COLOR                (1 << 0)
 #define G2D_INPUT_SCOORD1              (1 << 1)
 #define G2D_INPUT_SCOORD2              (1 << 2)
 #define G2D_INPUT_COPYCOORD            (1 << 3)
 #define G2D_INPUT_VGMODE               (1 << 4)
 #define G2D_INPUT_LINEMODE             (1 << 5)
+
+
+/*
+ * Bits for G2D_BLENDERCFG
+ */
+#define G2D_BLENDERCFG_PASSES(val)     ((val) & 0x7)
+#define G2D_BLENDERCFG_ALPHAPASSES(val) (((val) & 0x3) << 3)
+#define G2D_BLENDERCFG_ENABLE          (1 << 5)
+#define G2D_BLENDERCFG_OOALPHA         (1 << 6)
+#define G2D_BLENDERCFG_OBS_DIVALPHA    (1 << 7)
+#define G2D_BLENDERCFG_NOMASK          (1 << 8)
+
+
+/*
+ * Bits for G2D_SXY (same for G2D_SXY2):
+ * (yes, only 11 bits, compared to 12 bits for XY/WIDTHHEIGHT..)
+ */
+#define G2D_SXYn_Y(val)                ((val) & 0x7ff)
+#define G2D_SXYn_X(val)                (((val) & 0x7ff) << 16)
+
+
+/*
+ * Bits for G2D_XY:
+ */
+#define G2D_XY_Y(val)                  ((val) & 0xfff)
+#define G2D_XY_X(val)                  (((val) & 0xfff) << 16)
+
+
+/*
+ * Bits for G2D_WIDTHHEIGHT:
+ */
+#define G2D_WIDTHHEIGHT_HEIGHT(val)    ((val) & 0xfff)
+#define G2D_WIDTHHEIGHT_WIDTH(val)     (((val) & 0xfff) << 16)
+
+
+/*
+ * Bits for G2D_CFGn:
+ */
+#define G2D_CFGn_PITCH(val)            ((val) & 0xfff)
+static inline uint32_t G2D_CFGn_FORMAT(enum g2d_format fmt)
+{
+	return (fmt & 0xf) << 12;
+}
+
+
+/*
+ * Bits for GRADW_TEXCFG: (similar to C2D_CFGn, but some bitfields different)
+ */
+#define GRADW_TEXCFG_PITCH(val)        ((val) & 0xfff)
+static inline uint32_t GRADW_TEXCFG_FORMAT(enum g2d_format fmt)
+{
+	return (fmt & 0xf) << 12;
+}
+#define GRADW_TEXCFG_SWAPBITS          (1 << 30)
+
+
+/*
+ * Bits for GRADW_TEXCFG2:
+ */
+#define GRADW_TEXCFG2_ALPHA_TEX        (1 << 7)
 
 #endif /* FREEDRENO_Z1XX_H_ */

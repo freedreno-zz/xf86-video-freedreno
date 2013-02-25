@@ -148,89 +148,13 @@ static const uint32_t composite_op_dwords[4][PictOpAdd+1][4] = {
 	},
 };
 
-#if 0
-/* Get the length of the vector represented by (x,y) */
-static inline double
-vector_length(double x, double y)
+static inline enum g2d_format
+pixfmt(PixmapPtr pix)
 {
-	return sqrt((x*x) + (y*y));
+	return (pix->drawable.depth == 8) ? GRADW_A8 : GRADW_8888;
 }
 
-static inline void
-vector_normalize(double *x, double *y)
-{
-	double len = vector_length(*x, *y);
-	if (len != 0.0) {
-		*x /= len;
-		*y /= len;
-	}
-}
-
-static void
-transform_get_translate(PictTransform *t, double *x, double *y)
-{
-	double scale = xFixedtoDouble(t->matrix[2][2]);
-
-	if (scale == 0)
-		return;
-
-	*x = xFixedtoDouble(t->matrix[0][2]) / scale;
-	*y = xFixedtoDouble(t->matrix[1][2]) / scale;
-}
-
-static void
-transform_get_scale(PictTransform *t, double *xscale, double *yscale)
-{
-	double scale = xFixedtoDouble(t->matrix[2][2]);
-	double xs, ys;
-
-	if (scale == 0)
-		return;
-
-	xs = (vector_length(xFixedtoDouble(t->matrix[0][0]) / scale,
-			xFixedtoDouble(t->matrix[0][1]) / scale));
-
-	ys = (vector_length(xFixedtoDouble(t->matrix[1][0]) / scale,
-			xFixedtoDouble(t->matrix[1][1]) / scale));
-
-	/* The returned value is the inverse of what we calculate, because
-       the matrix is mapping the transformed surface back to the source
-       surface */
-
-	if (xs)
-		xs = 1/xs;
-
-	if (ys)
-		ys = 1/ys;
-
-	*xscale = xs;
-	*yscale = ys;
-}
-
-static void
-transform_get_rotate(PictTransform *t, double *d)
-{
-	double row[2][2];
-	double ret;
-	double scale = xFixedtoDouble(t->matrix[2][2]);
-
-	if (scale == 0)
-		return;
-
-	row[0][0] = xFixedtoDouble(t->matrix[0][0]) / scale;
-	row[0][1] = xFixedtoDouble(t->matrix[0][1]) / scale;
-	row[1][0] = xFixedtoDouble(t->matrix[1][0]) / scale;
-	row[1][1] = xFixedtoDouble(t->matrix[1][1]) / scale;
-
-	vector_normalize(&row[0][0], &row[0][1]);
-	vector_normalize(&row[1][0], &row[1][1]);
-
-	ret = atan2(row[0][1], row[0][0]) - atan2(0, 1);
-
-	*d = ret >= 0 ? ret : (2 * M_PI) + ret;
-}
-#endif
-
+/* 15 dwords */
 static inline void
 out_dstpix(struct fd_ringbuffer *ring, PixmapPtr pix)
 {
@@ -247,36 +171,28 @@ out_dstpix(struct fd_ringbuffer *ring, PixmapPtr pix)
 
 	TRACE_EXA("DST: %p, %dx%d,%d,%d", bo, w, h, p, pix->drawable.depth);
 
-	/* not quite sure if these first three dwords belong here, but all
-	 * blits seem to start with these immediately before the dst surf
-	 * parameters, so I'm putting them here for now
-	 *
-	 * Note that there are some similar dwords preceding src surf state
-	 * although it varies slightly for composite (some extra bits set
-	 * for src surface and no 0x11000000 like dword for mask surface..
-	 * so this may need some shuffling around when I start playing with
-	 * emitting dst/src/mask surf state in the corresponding Prepare
-	 * fxns rather than for every blit..
-	 */
 	OUT_RING (ring, REG(G2D_ALPHABLEND) | 0x0);
 	OUT_RING (ring, REG(G2D_BLENDERCFG) | 0x0);
 	OUT_RING (ring, REG(G2D_GRADIENT) | 0x030000);
 	OUT_RING (ring, REG(GRADW_TEXSIZE) | ((h & 0xfff) << 13) | (w & 0xfff));
-	OUT_RING (ring, REG(G2D_CFG0) | p |
-			((pix->drawable.depth == 8) ? 0xe000 : 0x7000));
+	OUT_RING (ring, REG(G2D_CFG0) |
+			G2D_CFGn_PITCH(p) |
+			G2D_CFGn_FORMAT(pixfmt(pix)));
 	OUT_RING (ring, REGM(G2D_BASE0, 1));
 	OUT_RELOC(ring, bo);
 	OUT_RING (ring, REGM(GRADW_TEXBASE, 1));
 	OUT_RELOC(ring, bo);
 	OUT_RING (ring, REGM(GRADW_TEXCFG, 1));
-	OUT_RING (ring, 0x40000000 | p |
-			((pix->drawable.depth == 8) ? 0xe000 : 0x7000));
-	OUT_RING (ring, 0xd5000000);
+	OUT_RING (ring, GRADW_TEXCFG_SWAPBITS |
+			GRADW_TEXCFG_PITCH(p) |
+			GRADW_TEXCFG_FORMAT(pixfmt(pix)));
+	OUT_RING (ring, REG(GRADW_TEXCFG2) | 0x0);
 	OUT_RING (ring, REG(G2D_ALPHABLEND) | 0x0);
 	OUT_RING (ring, REG(G2D_SCISSORX) | (w & 0xfff) << 12);
 	OUT_RING (ring, REG(G2D_SCISSORY) | (h & 0xfff) << 12);
 }
 
+/* 4 dwords */
 static inline void
 out_srcpix(struct fd_ringbuffer *ring, PixmapPtr pix)
 {
@@ -294,8 +210,9 @@ out_srcpix(struct fd_ringbuffer *ring, PixmapPtr pix)
 	TRACE_EXA("SRC: %p, %dx%d,%d,%d", bo, w, h, p, pix->drawable.depth);
 
 	OUT_RING (ring, REGM(GRADW_TEXCFG, 3));
-	OUT_RING (ring, 0x40000000 | p |   /* GRADW_TEXCFG */
-			((pix->drawable.depth == 8) ? 0xe000 : 0x7000));
+	OUT_RING (ring, GRADW_TEXCFG_SWAPBITS |   /* GRADW_TEXCFG */
+			GRADW_TEXCFG_PITCH(p) |
+			GRADW_TEXCFG_FORMAT(pixfmt(pix)));
 	// TODO check if 13 bit
 	OUT_RING (ring, ((h & 0xfff) << 13) | (w & 0xfff)); /* GRADW_TEXSIZE */
 	OUT_RELOC(ring, bo);               /* GRADW_TEXBASE */
@@ -381,8 +298,9 @@ MSMSolid(PixmapPtr pPixmap, int x1, int y1, int x2, int y2)
 	OUT_RING  (ring, REG(G2D_INPUT) | iena(exa, G2D_INPUT_COLOR));
 	OUT_RING  (ring, REG(G2D_CONFIG) | 0x0);
 	OUT_RING  (ring, REGM(G2D_XY, 2));
-	OUT_RING  (ring, ((x1 & 0xffff) << 16) | (y1 & 0xffff));   /* G2D_XY */
-	OUT_RING  (ring, (((x2 - x1) & 0xffff) << 16) | ((y2 - y1) & 0xffff)); /* G2D_WIDTHHEIGHT */
+	OUT_RING  (ring, G2D_XY_X(x1) | G2D_XY_Y(y1));    /* G2D_XY */
+	OUT_RING  (ring, G2D_WIDTHHEIGHT_WIDTH(x2-x1) |   /* G2D_WIDTHHEIGHT */
+			G2D_WIDTHHEIGHT_HEIGHT(y2-y1));
 	OUT_RING  (ring, REGM(G2D_COLOR, 1));
 	OUT_RING  (ring, exa->fill);
 	END_RING  (pMsm);
@@ -495,29 +413,31 @@ MSMCopy(PixmapPtr pDstPixmap, int srcX, int srcY, int dstX, int dstY,
 	OUT_RING  (ring, 0xff000000);      /* G2D_FOREGROUND */
 	OUT_RING  (ring, 0xff000000);      /* G2D_BACKGROUND */
 	OUT_RING  (ring, REG(G2D_BLENDERCFG) | 0x0);
-	OUT_RING  (ring, 0xd0000000);
+	OUT_RING  (ring, REG(G2D_GRADIENT) | 0x0);
 	out_srcpix(ring, pSrcPixmap);
-	OUT_RING  (ring, 0xd5000000);
-	OUT_RING  (ring, 0xd0000000);
+	OUT_RING  (ring, REG(GRADW_TEXCFG2) | 0x0);
+	OUT_RING  (ring, REG(G2D_GRADIENT) | 0x0);
 	OUT_RING  (ring, REG(G2D_INPUT) | iena(exa, G2D_INPUT_SCOORD1));
 	OUT_RING  (ring, REG(G2D_INPUT) | iena(exa, 0));
 	OUT_RING  (ring, REG(G2D_INPUT) | idis(exa, G2D_INPUT_COLOR));
 	OUT_RING  (ring, REG(G2D_INPUT) | iena(exa, G2D_INPUT_COPYCOORD));
-	OUT_RING  (ring, 0xd0000000);
+	OUT_RING  (ring, REG(G2D_GRADIENT) | 0x0);
 	OUT_RING  (ring, REG(G2D_INPUT) | iena(exa, 0));
 	OUT_RING  (ring, REG(G2D_INPUT) | iena(exa, 0));
 	OUT_RING  (ring, REG(G2D_INPUT) | iena(exa, 0));
 	OUT_RING  (ring, REG(G2D_CONFIG) | G2D_CONFIG_SRC1); /* we don't read from dst */
 	OUT_RING  (ring, REGM(G2D_XY, 3));
-	OUT_RING  (ring, (dstX & 0xffff) << 16 | (dstY & 0xffff));    /* G2D_XY */
-	OUT_RING  (ring, (width & 0xfff) << 16 | (height & 0xffff));  /* G2D_WIDTHHEIGHT */
-	OUT_RING  (ring, (srcX & 0xffff) << 16 | (srcY & 0xffff));    /* G2D_SXY */
-	OUT_RING  (ring, 0xd0000000);
-	OUT_RING  (ring, 0xd0000000);
-	OUT_RING  (ring, 0xd0000000);
-	OUT_RING  (ring, 0xd0000000);
-	OUT_RING  (ring, 0xd0000000);
-	OUT_RING  (ring, 0xd0000000);
+	OUT_RING  (ring, G2D_XY_X(dstX) | G2D_XY_Y(dstY));/* G2D_XY */
+	OUT_RING  (ring, G2D_WIDTHHEIGHT_WIDTH(width) |   /* G2D_WIDTHHEIGHT */
+			G2D_WIDTHHEIGHT_HEIGHT(height));
+	OUT_RING  (ring, G2D_SXYn_X(srcX) |               /* G2D_SXY */
+			G2D_SXYn_Y(srcY));
+	OUT_RING  (ring, REG(G2D_GRADIENT) | 0x0);
+	OUT_RING  (ring, REG(G2D_GRADIENT) | 0x0);
+	OUT_RING  (ring, REG(G2D_GRADIENT) | 0x0);
+	OUT_RING  (ring, REG(G2D_GRADIENT) | 0x0);
+	OUT_RING  (ring, REG(G2D_GRADIENT) | 0x0);
+	OUT_RING  (ring, REG(G2D_GRADIENT) | 0x0);
 	END_RING  (pMsm);
 }
 
@@ -614,9 +534,6 @@ MSMCheckComposite(int op, PicturePtr pSrcPicture, PicturePtr pMaskPicture,
 
 	// TODO anything we need to reject early?
 
-	// TODO figure out a way to deal w/ maskX/maskY.. for now reject mask:
-	EXA_FAIL_IF(pMaskPicture);
-
 	exa->op_dwords = composite_op_dwords[idx][op];
 	exa->dstpic    = pDstPicture;
 	exa->srcpic    = pSrcPicture;
@@ -696,6 +613,10 @@ MSMPrepareComposite(int op, PicturePtr pSrcPicture, PicturePtr pMaskPicture,
 				((pMask->drawable.width != 1) || (pMask->drawable.height != 1)));
 	}
 
+	// TODO, maybe we can support this.. pSrcPicture could be telling
+	// us to do solid, which we could probably support
+	EXA_FAIL_IF(!pSrc);
+
 	exa->src  = pSrc;
 	exa->mask = pMask;
 
@@ -766,27 +687,30 @@ MSMComposite(PixmapPtr pDstPixmap, int srcX, int srcY, int maskX, int maskY,
 		OUT_RING(ring, exa->op_dwords[2]);
 	OUT_RING(ring, exa->op_dwords[3]);
 
-	OUT_RING  (ring, REG(G2D_BLENDERCFG) | 0x60 | (pMaskPixmap ? 0 : 0x80) |
+	OUT_RING  (ring, REG(G2D_BLENDERCFG) |
+			G2D_BLENDERCFG_ENABLE |
+			G2D_BLENDERCFG_OOALPHA |
+			(pMaskPixmap ? 0 : 0x80) |
 			(PICT_FORMAT_A(exa->dstpic->format) ? 0 : 0x00200000));
-	OUT_RING  (ring, 0xd0000000);
+	OUT_RING  (ring, REG(G2D_GRADIENT) | 0x0);
 	out_srcpix(ring, pSrcPixmap);
-	OUT_RING  (ring, 0xd5000000);
+	OUT_RING  (ring, REG(GRADW_TEXCFG2) | 0x0);
 	if (pMaskPixmap) {
 		/* XXX C2D2 doesn't give a way to specify maskX/maskY, so not
 		 * entirely sure if this is a hw limitation, or if not how the
 		 * mask coords are specified in the cmdstream.  One possible
 		 * approach is ptr arithmetic on the gpuaddr
 		 */
-		OUT_RING  (ring, 0xd0020000);
+		OUT_RING  (ring, REG(G2D_GRADIENT) | 0x20000);
 		out_srcpix(ring, pMaskPixmap);
-		OUT_RING  (ring, 0xd5000080);
+		OUT_RING  (ring, REG(GRADW_TEXCFG2) | GRADW_TEXCFG2_ALPHA_TEX);
 	}
-	OUT_RING  (ring, 0xd0000000);
+	OUT_RING  (ring, REG(G2D_GRADIENT) | 0x0);
 	OUT_RING  (ring, REG(G2D_INPUT) | iena(exa, G2D_INPUT_SCOORD1));
 	OUT_RING  (ring, REG(G2D_INPUT) | iena(exa, 0));
 	OUT_RING  (ring, REG(G2D_INPUT) | idis(exa, G2D_INPUT_COLOR));
 	OUT_RING  (ring, REG(G2D_INPUT) | iena(exa, G2D_INPUT_COPYCOORD));
-	OUT_RING  (ring, 0xd0000000);
+	OUT_RING  (ring, REG(G2D_GRADIENT) | 0x0);
 	OUT_RING  (ring, REG(G2D_INPUT) | iena(exa, 0));
 	OUT_RING  (ring, REG(G2D_INPUT) | iena(exa, 0));
 	OUT_RING  (ring, REG(G2D_INPUT) | iena(exa, 0));
@@ -794,15 +718,22 @@ MSMComposite(PixmapPtr pDstPixmap, int srcX, int srcY, int maskX, int maskY,
 			G2D_CONFIG_DST | G2D_CONFIG_SRC1 |
 			(pMaskPixmap ? G2D_CONFIG_SRC2 : 0));
 	OUT_RING  (ring, REGM(G2D_XY, 3));
-	OUT_RING  (ring, (dstX & 0xffff) << 16 | (dstY & 0xffff));    /* G2D_XY */
-	OUT_RING  (ring, (width & 0xfff) << 16 | (height & 0xffff));  /* G2D_WIDTHHEIGHT */
-	OUT_RING  (ring, (srcX & 0xffff) << 16 | (srcY & 0xffff));    /* G2D_SXY */
-	OUT_RING  (ring, 0xd0000000);
-	OUT_RING  (ring, 0xd0000000);
-	OUT_RING  (ring, 0xd0000000);
-	OUT_RING  (ring, 0xd0000000);
-	OUT_RING  (ring, 0xd0000000);
-	OUT_RING  (ring, 0xd0000000);
+	OUT_RING  (ring, G2D_XY_X(dstX) | G2D_XY_Y(dstY));/* G2D_XY */
+	OUT_RING  (ring, G2D_WIDTHHEIGHT_WIDTH(width) |   /* G2D_WIDTHHEIGHT */
+			G2D_WIDTHHEIGHT_HEIGHT(height));
+	OUT_RING  (ring, G2D_SXYn_X(srcX) |               /* G2D_SXY */
+			G2D_SXYn_Y(srcY));
+	if (pMaskPixmap) {
+		OUT_RING  (ring, REGM(G2D_SXY2, 1));
+		OUT_RING  (ring, G2D_SXYn_X(maskX) |          /* G2D_SXY */
+				G2D_SXYn_Y(maskY));
+	}
+	OUT_RING  (ring, REG(G2D_GRADIENT) | 0x0);
+	OUT_RING  (ring, REG(G2D_GRADIENT) | 0x0);
+	OUT_RING  (ring, REG(G2D_GRADIENT) | 0x0);
+	OUT_RING  (ring, REG(G2D_GRADIENT) | 0x0);
+	OUT_RING  (ring, REG(G2D_GRADIENT) | 0x0);
+	OUT_RING  (ring, REG(G2D_GRADIENT) | 0x0);
 	END_RING  (pMsm);
 }
 

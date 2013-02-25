@@ -86,7 +86,7 @@ BEGIN_RING(MSMPtr pMsm, int size)
 	/* current kernel side just expects one cmd packet per ISSUEIBCMDS: */
 	size += 11;       /* common header/footer */
 
-	if (((ring->cur - ring->last_start) + size) > 0x2ff)
+	if ((ring->cur + size) > ring->end)
 		FIRE_RING(pMsm);
 }
 
