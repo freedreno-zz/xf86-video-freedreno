@@ -865,12 +865,23 @@ MSMFinishAccess(PixmapPtr pPixmap, int index)
 	pPixmap->devPrivate.ptr = NULL;
 }
 
+#define EXA_ALIGN(offset, align) (((offset) + (align) - 1) - \
+	(((offset) + (align) - 1) % (align)))
+
 static void *
-MSMCreatePixmap(ScreenPtr pScreen, int size, int align)
+MSMCreatePixmap2(ScreenPtr pScreen, int width, int height,
+		int depth, int usage_hint, int bpp,
+		int *new_fb_pitch)
 {
 	struct msm_pixmap_priv *priv;
 	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
 	MSMPtr pMsm = MSMPTR(pScrn);
+	int pitch, size;
+
+	pitch = EXA_ALIGN(width * bpp, pMsm->pExa->pixmapPitchAlign * 8) / 8;
+	size = pitch * height;
+
+	*new_fb_pitch = pitch;
 
 	priv = calloc(1, sizeof(struct msm_pixmap_priv));
 
@@ -966,7 +977,7 @@ MSMSetupExa(ScreenPtr pScreen)
 	pExa->MarkSync           = MSMMarkSync;
 	pExa->WaitMarker         = MSMWaitMarker;
 	pExa->PixmapIsOffscreen  = MSMPixmapIsOffscreen;
-	pExa->CreatePixmap       = MSMCreatePixmap;
+	pExa->CreatePixmap2      = MSMCreatePixmap2;
 	pExa->DestroyPixmap      = MSMDestroyPixmap;
 	pExa->PrepareAccess      = MSMPrepareAccess;
 	pExa->FinishAccess       = MSMFinishAccess;
