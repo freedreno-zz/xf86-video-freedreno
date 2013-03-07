@@ -151,7 +151,7 @@ static const uint32_t composite_op_dwords[4][PictOpAdd+1][4] = {
 static inline enum g2d_format
 pixfmt(PixmapPtr pix)
 {
-	return (pix->drawable.depth == 8) ? GRADW_A8 : GRADW_8888;
+	return (pix->drawable.depth == 8) ? G2D_A8 : G2D_8888;
 }
 
 /* 15 dwords */
