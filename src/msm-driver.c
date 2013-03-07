@@ -115,10 +115,37 @@ MSMBlockHandler (BLOCKHANDLER_ARGS_DECL)
 		FIRE_RING(pMsm);
 }
 
+/*
+ * Because we don't use DRI1:
+ */
+
+static int
+dri_drm_debug_print(const char *format, va_list ap)
+{
+	xf86VDrvMsgVerb(-1, X_NONE, 3, format, ap);
+	return 0;
+}
+
+static void
+dri_drm_get_perms(gid_t * group, mode_t * mode)
+{
+	*group = -1;
+	*mode = 0666;
+}
+
+static drmServerInfo drm_server_info = {
+	dri_drm_debug_print,
+	xf86LoadKernelModule,
+	dri_drm_get_perms,
+};
+
+
 static Bool
 MSMInitDRM(ScrnInfoPtr pScrn)
 {
 	MSMPtr pMsm = MSMPTR(pScrn);
+
+	drmSetServerInfo(&drm_server_info);
 
 	pMsm->drmFD = drmOpen("kgsl", NULL);
 	if (pMsm->drmFD < 0) {
