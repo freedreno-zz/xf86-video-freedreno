@@ -167,7 +167,8 @@ next_ring(MSMPtr pMsm)
 	}
 
 	ring = pMsm->ring.ring = pMsm->ring.rings[idx] =
-			fd_ringbuffer_new(pMsm->pipe, 0x5000);
+			fd_ringbuffer_new(pMsm->pipe,
+					0x4000 + STATE_SIZE * sizeof(uint32_t));
 
 	/* for now, until state packet is understood, just use a pre-canned
 	 * state captured from libC2D2 test, and fix up the gpu addresses

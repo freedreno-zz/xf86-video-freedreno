@@ -42,28 +42,28 @@
 
 #define xFixedtoDouble(_f) (double) ((_f)/(double) xFixed1)
 
-#define ENABLE_EXA_TRACE				0
-#define ENABLE_SW_FALLBACK_REPORTS		0
+#define ENABLE_EXA_TRACE                0
+#define ENABLE_SW_FALLBACK_REPORTS        0
 
 #define MSM_LOCALS(pDraw) \
-	ScrnInfoPtr pScrn = xf86Screens[((DrawablePtr)(pDraw))->pScreen->myNum]; \
-	MSMPtr pMsm = MSMPTR(pScrn);									\
-	struct fd_ringbuffer *ring = pMsm->ring.ring; (void)ring;		\
-	struct exa_state *exa = pMsm->exa; (void)exa
+    ScrnInfoPtr pScrn = xf86Screens[((DrawablePtr)(pDraw))->pScreen->myNum]; \
+    MSMPtr pMsm = MSMPTR(pScrn);                                    \
+    struct fd_ringbuffer *ring = NULL; (void)ring;                  \
+    struct exa_state *exa = pMsm->exa; (void)exa
 
-#define TRACE_EXA(fmt, ...) do {									\
-		if (ENABLE_EXA_TRACE)										\
-			ErrorF("EXA: " fmt"\n", ##__VA_ARGS__);					\
-	} while (0)
+#define TRACE_EXA(fmt, ...) do {                                    \
+        if (ENABLE_EXA_TRACE)                                       \
+            ErrorF("EXA: " fmt"\n", ##__VA_ARGS__);                 \
+    } while (0)
 
-#define EXA_FAIL_IF(cond) do {										\
-		if (cond) {													\
-			if (ENABLE_SW_FALLBACK_REPORTS) {						\
-				ErrorF("FALLBACK: " #cond"\n");						\
-			}														\
-			return FALSE;											\
-		}															\
-	} while (0)
+#define EXA_FAIL_IF(cond) do {                                      \
+        if (cond) {                                                 \
+            if (ENABLE_SW_FALLBACK_REPORTS) {                       \
+                ErrorF("FALLBACK: " #cond"\n");                     \
+            }                                                       \
+            return FALSE;                                           \
+        }                                                           \
+    } while (0)
 
 struct exa_state {
 	/* solid state: */
@@ -295,6 +295,7 @@ MSMSolid(PixmapPtr pPixmap, int x1, int y1, int x2, int y2)
 			x1, y1, x2, y2, exa->fill);
 
 	BEGIN_RING(pMsm, 25);
+	ring = pMsm->ring.ring;
 	out_dstpix(ring, pPixmap);
 	OUT_RING  (ring, REG(G2D_INPUT) | idis(exa, G2D_INPUT_SCOORD1));
 	OUT_RING  (ring, REG(G2D_INPUT) | idis(exa, G2D_INPUT_SCOORD2));
@@ -412,6 +413,7 @@ MSMCopy(PixmapPtr pDstPixmap, int srcX, int srcY, int dstX, int dstY,
 			srcX, srcY, dstX, dstY, width, height);
 
 	BEGIN_RING(pMsm, 46);
+	ring = pMsm->ring.ring;
 	out_dstpix(ring, pDstPixmap);
 	OUT_RING  (ring, REGM(G2D_FOREGROUND, 2));
 	OUT_RING  (ring, 0xff000000);      /* G2D_FOREGROUND */
@@ -657,6 +659,7 @@ MSMComposite(PixmapPtr pDstPixmap, int srcX, int srcY, int maskX, int maskY,
 			width, height, exa->srcpic->format, exa->dstpic->format);
 
 	BEGIN_RING(pMsm, 71);
+	ring = pMsm->ring.ring;
 	out_dstpix(ring, pDstPixmap);
 
 	if (!PICT_FORMAT_A(exa->dstpic->format)) {

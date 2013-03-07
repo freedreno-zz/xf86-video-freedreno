@@ -112,7 +112,7 @@ typedef struct _MSMRec
 	 */
 	struct {
 		int idx;
-		struct fd_ringbuffer *rings[4];
+		struct fd_ringbuffer *rings[8];
 		struct fd_ringbuffer *ring;
 		struct fd_bo *context_bos[3];
 		Bool fire;
