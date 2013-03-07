@@ -76,7 +76,8 @@ createpix(DrawablePtr pDraw)
 {
 	ScreenPtr pScreen = pDraw->pScreen;
 	return pScreen->CreatePixmap(pScreen,
-			pDraw->width, pDraw->height, pDraw->depth, 0);
+			pDraw->width, pDraw->height, pDraw->depth,
+			CREATE_PIXMAP_USAGE_DRI2);
 }
 
 /**

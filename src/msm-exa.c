@@ -907,8 +907,17 @@ MSMCreatePixmap2(ScreenPtr pScreen, int width, int height,
 	if (!size)
 		return priv;
 
-	priv->bo = fd_bo_new(pMsm->dev, size,
-			DRM_FREEDRENO_GEM_TYPE_KMEM);
+	if (usage_hint & CREATE_PIXMAP_USAGE_DRI2) {
+		priv->bo = fd_bo_new(pMsm->dev, size,
+				DRM_FREEDRENO_GEM_TYPE_KMEM |
+				DRM_FREEDRENO_GEM_TYPE_SMI);
+		ErrorF("bo=%p\n", priv->bo);
+	}
+
+	if (!priv->bo) {
+		priv->bo = fd_bo_new(pMsm->dev, size,
+				DRM_FREEDRENO_GEM_TYPE_KMEM);
+	}
 
 	if (priv->bo)
 		return priv;

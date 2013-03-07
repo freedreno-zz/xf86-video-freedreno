@@ -41,6 +41,8 @@
 #include <freedreno_drmif.h>
 #include <freedreno_ringbuffer.h>
 
+#define CREATE_PIXMAP_USAGE_DRI2 0x10000000
+
 #ifndef ARRAY_SIZE
 #  define ARRAY_SIZE(a) (sizeof((a)) / (sizeof(*(a))))
 #endif
