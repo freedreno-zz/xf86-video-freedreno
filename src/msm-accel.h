@@ -63,13 +63,25 @@ FIRE_RING(MSMPtr pMsm)
 	if (pMsm->ring.fire) {
 		ring_post(ring);
 		fd_ringbuffer_flush(ring);
+
+		/* grab the timestamp off the current ringbuffer: */
+		pMsm->ring.timestamp = fd_ringbuffer_timestamp(pMsm->ring.ring);
+
+		/* cycle to next ringbuffer: */
 		next_ring(pMsm);
+
+		/* if blits haven't finished on the previous usage of the next
+		 * ringbuffer, we need to wait to avoid overwriting cmds that
+		 * the gpu is still processing..  ideally we don't hit this too
+		 * much, otherwise we should create more ringbuffers..
+		 *
+		 * TODO maybe we want to time this to make sure we aren't actually
+		 * blocking..
+		 */
 		fd_pipe_wait(pMsm->pipe, fd_ringbuffer_timestamp(pMsm->ring.ring));
-		pMsm->ring.timestamp++;
-//		fd_pipe_timestamp(pMsm->pipe, &pMsm->ring.actual_timestamp);
-//		ErrorF("FLUSH: actual_timestamp=%u, expected_timestamp=%u\n",
-//			pMsm->ring.actual_timestamp, pMsm->ring.expected_timestamp);
+
 		ring_pre(pMsm->ring.ring);
+
 		pMsm->ring.fire = FALSE;
 	}
 }
