@@ -44,7 +44,6 @@
 #include "xf86Crtc.h"
 
 #include "mipointer.h"
-#include "mibstore.h"
 #include "micmap.h"
 #include "fb.h"
 #include "dixstruct.h"
