@@ -37,6 +37,9 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <sys/mman.h>
+#include <stdint.h>
+#include <linux/msm_kgsl.h>
+#include <linux/msm_mdp.h>
 
 #include "xf86.h"
 #include "damage.h"
@@ -67,19 +70,6 @@
 				(MSM_VERSION_MINOR << 10) | \
 				(MSM_VERSION_PATCH))
 
-/* List of available strings for fbCache support */
-
-
-static const char *fbCacheStrings[] = {
-#ifdef MSMFB_GET_PAGE_PROTECTION
-		[MDP_FB_PAGE_PROTECTION_NONCACHED] = "Noncached",
-		[MDP_FB_PAGE_PROTECTION_WRITECOMBINE] = "WriteCombine",
-		[MDP_FB_PAGE_PROTECTION_WRITETHROUGHCACHE] = "WriteThroughCache",
-		[MDP_FB_PAGE_PROTECTION_WRITEBACKCACHE] = "WriteBackCache",
-		[MDP_FB_PAGE_PROTECTION_WRITEBACKWACACHE] = "WriteBackWACache",
-#endif
-		NULL
-};
 
 /* An aray containing the options that the user can
    configure in xorg.conf
@@ -90,8 +80,6 @@ static const OptionInfoRec MSMOptions[] = {
 		{OPTION_NOACCEL, "NoAccel", OPTV_BOOLEAN, {0}, FALSE},
 		{OPTION_SWCURSOR, "SWCursor", OPTV_BOOLEAN, {0}, FALSE},
 		{OPTION_VSYNC, "DefaultVsync", OPTV_INTEGER, {0}, FALSE},
-		{OPTION_FBCACHE, "FBCache", OPTV_STRING, {0}, FALSE},
-		{OPTION_PAGEFLIP, "PageFlip", OPTV_BOOLEAN, {0}, FALSE},
 		{OPTION_DEBUG, "Debug", OPTV_BOOLEAN, {0}, FALSE},
 		{-1, NULL, OPTV_NONE, {0}, FALSE}
 };
@@ -241,38 +229,6 @@ static const xf86CrtcConfigFuncsRec MSMCrtcConfigFuncs = {
 		MSMCrtcResize,
 };
 
-/* A simple case-insenstive string comparison function. */
-
-static int stricmp(const char *left, const char *right)
-{
-	const int MAXSTRINGLEN = 100;
-	char leftCopy[MAXSTRINGLEN],
-	rightCopy[MAXSTRINGLEN];
-	int i;
-
-	// Make temporary copies of comparison strings.
-	strncpy(leftCopy,left, MAXSTRINGLEN);
-	strncpy(rightCopy,right, MAXSTRINGLEN);
-
-	// Convert English upper-case characters to lower-case.
-	i = 0;
-	while (leftCopy[i] != '\0')
-	{
-		if (leftCopy[i] >= 'A' && leftCopy[i] <= 'Z')
-			leftCopy[i] += 'a' - 'A';
-		i++;
-	}
-	i = 0;
-	while (rightCopy[i] != '\0')
-	{
-		if (rightCopy[i] >= 'A' && rightCopy[i] <= 'Z')
-			rightCopy[i] += 'a' - 'A';
-		i++;
-	}
-
-	return strcmp(leftCopy, rightCopy);
-}
-
 /* This is the main initialization function for the screen */
 
 static Bool
@@ -280,7 +236,7 @@ MSMPreInit(ScrnInfoPtr pScrn, int flags)
 {
 	MSMPtr pMsm;
 	EntityInfoPtr pEnt;
-	const char *dev, *str;
+	const char *dev;
 	int mdpver, panelid;
 	int depth, fbbpp;
 	rgb defaultWeight = { 0, 0, 0 };
@@ -531,25 +487,6 @@ MSMPreInit(ScrnInfoPtr pScrn, int flags)
 			pMsm->defaultVsync = vsync;
 	}
 
-	/* FBCache - default WriteThroughCache */
-	pMsm->FBCache = MDP_FB_PAGE_PROTECTION_WRITETHROUGHCACHE;
-
-	str = xf86GetOptValString(pMsm->options, OPTION_FBCACHE);
-
-	if (str) {
-		int i;
-
-		for(i = 0; fbCacheStrings[i] != NULL; i++) {
-			if (!stricmp(str, fbCacheStrings[i])) {
-				pMsm->FBCache = i;
-				break;
-			}
-		}
-
-		if (fbCacheStrings[i] == NULL)
-			ERROR_MSG("Invalid FBCache '%s'", str);
-	}
-
 	if (!MSMInitDRM(pScrn)) {
 		ERROR_MSG("Unable to open DRM");
 		return FALSE;
@@ -638,7 +575,6 @@ MSMPreInit(ScrnInfoPtr pScrn, int flags)
 	INFO_MSG("MSM Options:");
 	INFO_MSG(" HW Cursor: %s", pMsm->HWCursor ? "Enabled" : "Disabled");
 	INFO_MSG(" Default Vsync: %d", pMsm->defaultVsync);
-	INFO_MSG(" FBCache: %s", fbCacheStrings[pMsm->FBCache]);
 
 	return TRUE;
 }

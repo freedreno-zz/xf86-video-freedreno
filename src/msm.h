@@ -36,7 +36,6 @@
 
 #include <linux/fb.h>
 #include <linux/ioctl.h>
-#include <linux/msm_mdp.h>
 
 #include <freedreno_drmif.h>
 #include <freedreno_ringbuffer.h>
@@ -55,8 +54,6 @@ typedef enum
 	OPTION_NOACCEL,
 	OPTION_SWCURSOR,
 	OPTION_VSYNC,
-	OPTION_FBCACHE,
-	OPTION_PAGEFLIP,
 	OPTION_DEBUG,
 } MSMOpts;
 
@@ -101,7 +98,6 @@ typedef struct _MSMRec
 	Bool HWCursor;
 	int HWCursorState;
 	int defaultVsync;
-	int FBCache;
 
 	int drmFD;
 

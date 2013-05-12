@@ -29,7 +29,6 @@
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
-#include <linux/msm_kgsl.h>
 
 #include "msm.h"
 #include "msm-accel.h"
