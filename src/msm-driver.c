@@ -795,7 +795,6 @@ MSMScreenInit(SCREEN_INIT_ARGS_DECL)
 	xf86SetBlackWhitePixels(pScreen);
 
 	/* Set up the backing store */
-	miInitializeBackingStore(pScreen);
 	xf86SetBackingStore(pScreen);
 
 	/* Set up EXA */
