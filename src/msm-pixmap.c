@@ -33,6 +33,9 @@
 
 #include "msm.h"
 
+#ifdef HAVE_XA
+#  include <xa_tracker.h>
+#endif
 
 struct fd_bo *
 msm_get_pixmap_bo(PixmapPtr pix)
@@ -59,14 +62,53 @@ msm_get_pixmap_bo(PixmapPtr pix)
 	return NULL;
 }
 
-int
-msm_get_pixmap_name(PixmapPtr pix, unsigned int *name, unsigned int *pitch)
+#ifdef HAVE_XA
+struct xa_surface *
+msm_get_pixmap_surf(PixmapPtr pix)
 {
-	int ret = -1;
-	struct fd_bo *bo = msm_get_pixmap_bo(pix);
-	if (bo) {
-		*pitch = exaGetPixmapPitch(pix);
-		ret = fd_bo_get_name(bo, name);
+	struct msm_pixmap_priv *priv = exaGetPixmapDriverPrivate(pix);
+
+	if (priv && priv->surf)
+		return priv->surf;
+
+	/* TODO: perhaps the special handling for scanout pixmap should be done
+	 * elsewhere so it isn't in a hot path.. ie. when the scanout buffer is
+	 * allocated..
+	 */
+	if (priv) {
+		ScreenPtr pScreen = pix->drawable.pScreen;
+		MSMPtr pMsm = MSMPTR_FROM_PIXMAP(pix);
+		// TODO .. how to handle offset for rotated pixmap.. worry about that later
+		if (pScreen->GetScreenPixmap(pScreen) == pix) {
+			priv->surf = pMsm->scanout_surf;
+			return priv->surf;
+		}
 	}
+
+	return NULL;
+}
+#endif
+
+int
+msm_get_pixmap_name(PixmapPtr pix, unsigned int *name, unsigned int *stride)
+{
+	MSMPtr pMsm = MSMPTR_FROM_PIXMAP(pix);
+	int ret = -1;
+
+	if (pMsm->xa) {
+#ifdef HAVE_XA
+		struct xa_surface *surf = msm_get_pixmap_surf(pix);
+		if (surf) {
+			ret = xa_surface_handle(surf, xa_handle_type_shared, name, stride);
+		}
+#endif
+	} else {
+		struct fd_bo *bo = msm_get_pixmap_bo(pix);
+		if (bo) {
+			*stride = exaGetPixmapPitch(pix);
+			ret = fd_bo_get_name(bo, name);
+		}
+	}
+
 	return ret;
 }

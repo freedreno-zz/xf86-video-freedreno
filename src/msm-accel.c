@@ -33,6 +33,10 @@
 #include "msm.h"
 #include "msm-accel.h"
 
+#ifdef HAVE_XA
+#  include <xa_tracker.h>
+#endif
+
 /* matching buffer info:
                 len:            00001000
                 gpuaddr:        66142000
@@ -188,46 +192,96 @@ MSMSetupAccel(ScreenPtr pScreen)
 {
 	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	MSMPtr pMsm = MSMPTR(pScrn);
-	Bool ret;
+	Bool ret = FALSE;
 	struct fd_ringbuffer *ring;
 
 	pMsm->pipe = fd_pipe_new(pMsm->dev, FD_PIPE_2D);
-	if (!pMsm->pipe) {
-		ERROR_MSG("fail!");
-		return FALSE;
+	if (pMsm->pipe) {
+		/* Make a buffer object for the framebuffer so that the GPU MMU
+		 * can use it
+		 */
+		pMsm->scanout = fd_bo_from_fbdev(pMsm->pipe, pMsm->fd,
+				pMsm->fixed_info.smem_len);
+
+		pMsm->ring.context_bos[0] = fd_bo_new(pMsm->dev, 0x1000,
+				DRM_FREEDRENO_GEM_TYPE_KMEM);
+		pMsm->ring.context_bos[1] = fd_bo_new(pMsm->dev, 0x9000,
+				DRM_FREEDRENO_GEM_TYPE_KMEM);
+		pMsm->ring.context_bos[2] = fd_bo_new(pMsm->dev, 0x81000,
+				DRM_FREEDRENO_GEM_TYPE_KMEM);
+
+		next_ring(pMsm);
+
+		ring = pMsm->ring.ring;
+		ring_pre(ring);
+
+		BEGIN_RING(pMsm, 8);
+		OUT_RING  (ring, REGM(VGV1_DIRTYBASE, 3));
+		OUT_RELOC (ring, pMsm->ring.context_bos[0]); /* VGV1_DIRTYBASE */
+		OUT_RELOC (ring, pMsm->ring.context_bos[1]); /* VGV1_CBASE1 */
+		OUT_RELOC (ring, pMsm->ring.context_bos[2]); /* VGV1_UBASE2 */
+		OUT_RING  (ring, 0x11000000);
+		OUT_RING  (ring, 0x10fff000);
+		OUT_RING  (ring, 0x10ffffff);
+		OUT_RING  (ring, 0x0d000404);
+		END_RING  (pMsm);
+
+		ret = MSMSetupExa(pScreen);
+	} else {
+#ifdef HAVE_XA
+		uint32_t name;
+
+		DEBUG_MSG("no 2d, trying 3d/xa");
+
+		pMsm->pipe = fd_pipe_new(pMsm->dev, FD_PIPE_3D);
+		if (!pMsm->pipe) {
+			ERROR_MSG("no 3d pipe");
+			goto fail;
+		}
+
+		pMsm->xa = xa_tracker_create(pMsm->drmFD);
+		if (!pMsm->xa) {
+			ERROR_MSG("could not setup xa");
+			goto fail;
+		}
+
+		pMsm->scanout = fd_bo_from_fbdev(pMsm->pipe, pMsm->fd,
+				pMsm->fixed_info.smem_len);
+
+		fd_bo_get_name(pMsm->scanout, &name);
+
+		pMsm->scanout_surf = xa_surface_from_handle(pMsm->xa,
+				pMsm->mode_info.xres, pMsm->mode_info.yres,
+				pScrn->depth, xa_type_argb, xa_format_unknown,
+				XA_FLAG_SHARED | XA_FLAG_RENDER_TARGET | XA_FLAG_SCANOUT,
+				name, pMsm->fixed_info.line_length);
+
+		ret = MSMSetupExaXA(pScreen);
+#endif
 	}
 
-	/* Make a buffer object for the framebuffer so that the GPU MMU
-	 * can use it
-	 */
-	pMsm->scanout = fd_bo_from_fbdev(pMsm->pipe, pMsm->fd, pMsm->fixed_info.smem_len);
-
-	pMsm->ring.context_bos[0] = fd_bo_new(pMsm->dev, 0x1000,
-			DRM_FREEDRENO_GEM_TYPE_KMEM);
-	pMsm->ring.context_bos[1] = fd_bo_new(pMsm->dev, 0x9000,
-			DRM_FREEDRENO_GEM_TYPE_KMEM);
-	pMsm->ring.context_bos[2] = fd_bo_new(pMsm->dev, 0x81000,
-			DRM_FREEDRENO_GEM_TYPE_KMEM);
-
-	next_ring(pMsm);
-
-	ring = pMsm->ring.ring;
-	ring_pre(ring);
-
-	BEGIN_RING(pMsm, 8);
-	OUT_RING  (ring, REGM(VGV1_DIRTYBASE, 3));
-	OUT_RELOC (ring, pMsm->ring.context_bos[0]); /* VGV1_DIRTYBASE */
-	OUT_RELOC (ring, pMsm->ring.context_bos[1]); /* VGV1_CBASE1 */
-	OUT_RELOC (ring, pMsm->ring.context_bos[2]); /* VGV1_UBASE2 */
-	OUT_RING  (ring, 0x11000000);
-	OUT_RING  (ring, 0x10fff000);
-	OUT_RING  (ring, 0x10ffffff);
-	OUT_RING  (ring, 0x0d000404);
-	END_RING  (pMsm);
-
-	ret = MSMSetupExa(pScreen);
-	if (ret) {
-		pMsm->dri = MSMDRI2ScreenInit(pScreen);
+	if (!ret) {
+		ERROR_MSG("could not setup accel!");
+		goto fail;
 	}
+
+	pMsm->dri = MSMDRI2ScreenInit(pScreen);
+	return TRUE;
+
+fail:
 	return ret;
+}
+
+void
+MSMFlushAccel(ScreenPtr pScreen)
+{
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
+	MSMPtr pMsm = MSMPTR(pScrn);
+	if (pMsm->xa) {
+#ifdef HAVE_XA
+		MSMFlushXA(pMsm);
+#endif
+	} else {
+		FIRE_RING(pMsm);
+	}
 }

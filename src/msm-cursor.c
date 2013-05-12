@@ -37,8 +37,10 @@
 
 #include <sys/ioctl.h>
 #include <errno.h>
+#include <linux/msm_mdp.h>
 
 #include "msm.h"
+
 
 #define MSM_CURSOR_WIDTH 64
 #define MSM_CURSOR_HEIGHT 64

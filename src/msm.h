@@ -40,6 +40,9 @@
 #include <freedreno_drmif.h>
 #include <freedreno_ringbuffer.h>
 
+struct xa_tracker;
+struct xa_surface;
+
 #define CREATE_PIXMAP_USAGE_DRI2 0x10000000
 
 #ifndef ARRAY_SIZE
@@ -118,10 +121,14 @@ typedef struct _MSMRec
 	} ring;
 	struct fd_pipe *pipe;
 
+	/* for XA state tracker EXA: */
+	struct xa_tracker *xa;
+
 	/* EXA state: */
 	struct exa_state *exa;
 
 	struct fd_bo *scanout;
+	struct xa_surface *scanout_surf;
 
 	OptionInfoPtr     options;
 	PixmapPtr rotatedPixmap;
@@ -130,7 +137,9 @@ typedef struct _MSMRec
 } MSMRec, *MSMPtr;
 
 struct msm_pixmap_priv {
-	struct fd_bo *bo;
+	struct fd_bo *bo;        /* for traditional 2d EXA */
+	struct xa_surface *surf; /* for XA state tracker EXA */
+	void *ptr;               /* for unacceleratable pixmaps */
 };
 
 /* Macro to get the private record from the ScreenInfo structure */
@@ -140,7 +149,10 @@ struct msm_pixmap_priv {
 		MSMPTR(xf86ScreenToScrn((_x)->drawable.pScreen))
 
 Bool MSMSetupAccel(ScreenPtr pScreen);
+void MSMFlushAccel(ScreenPtr pScreen);
 Bool MSMSetupExa(ScreenPtr);
+Bool MSMSetupExaXA(ScreenPtr);
+void MSMFlushXA(MSMPtr pMsm);
 Bool MSMDRI2ScreenInit(ScreenPtr pScreen);
 void MSMDRI2CloseScreen(ScreenPtr pScreen);
 void MSMSetCursorPosition(MSMPtr pMsm, int x, int y);
@@ -156,7 +168,10 @@ void MSMCrtcSetup(ScrnInfoPtr pScrn);
 #define xFixedtoDouble(_f) (double) ((_f)/(double) xFixed1)
 
 struct fd_bo *msm_get_pixmap_bo(PixmapPtr);
-int msm_get_pixmap_name(PixmapPtr pix, unsigned int *name, unsigned int *pitch);
+#ifdef HAVE_XA
+struct xa_surface *msm_get_pixmap_surf(PixmapPtr pix);
+#endif
+int msm_get_pixmap_name(PixmapPtr pix, unsigned int *name, unsigned int *stride);
 
 
 /**
