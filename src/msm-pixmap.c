@@ -33,44 +33,6 @@
 
 #include "msm.h"
 
-void *
-msm_pixmap_hostptr(PixmapPtr pixmap)
-{
-	struct fd_bo *bo = msm_get_pixmap_bo(pixmap);
-	return fd_bo_map(bo);
-}
-
-int
-msm_pixmap_offset(PixmapPtr pixmap)
-{
-	return 0;
-}
-
-int
-msm_pixmap_get_pitch(PixmapPtr pix)
-{
-	struct msm_pixmap_priv *priv = exaGetPixmapDriverPrivate(pix);
-
-	/* We only modify the pitch for 16bpp operations */
-
-	if (priv && priv->bo && pix->drawable.bitsPerPixel == 16) {
-		return ((pix->drawable.width + 31) & ~31) *
-				(pix->drawable.bitsPerPixel >> 3);
-	}
-
-	return exaGetPixmapPitch(pix);
-}
-
-Bool
-msm_pixmap_in_gem(PixmapPtr pix)
-{
-	struct msm_pixmap_priv *priv = exaGetPixmapDriverPrivate(pix);
-
-	if (priv && priv->bo)
-		return TRUE;
-
-	return FALSE;
-}
 
 struct fd_bo *
 msm_get_pixmap_bo(PixmapPtr pix)
@@ -92,8 +54,19 @@ msm_get_pixmap_bo(PixmapPtr pix)
 			priv->bo = pMsm->scanout;
 			return priv->bo;
 		}
-
 	}
 
 	return NULL;
+}
+
+int
+msm_get_pixmap_name(PixmapPtr pix, unsigned int *name, unsigned int *pitch)
+{
+	int ret = -1;
+	struct fd_bo *bo = msm_get_pixmap_bo(pix);
+	if (bo) {
+		*pitch = exaGetPixmapPitch(pix);
+		ret = fd_bo_get_name(bo, name);
+	}
+	return ret;
 }

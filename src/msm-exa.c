@@ -167,7 +167,7 @@ out_dstpix(struct fd_ringbuffer *ring, PixmapPtr pix)
 	/* pitch specified in units of 32 bytes, it appears.. not quite sure
 	 * max size yet, but I think 11 or 12 bits..
 	 */
-	p = (msm_pixmap_get_pitch(pix) / 32) & 0xfff;
+	p = (exaGetPixmapPitch(pix) / 32) & 0xfff;
 
 	TRACE_EXA("DST: %p, %dx%d,%d,%d", bo, w, h, p, pix->drawable.depth);
 
@@ -207,7 +207,7 @@ out_srcpix(struct fd_ringbuffer *ring, PixmapPtr pix)
 	/* pitch specified in units of 32 bytes, it appears.. not quite sure
 	 * max size yet, but I think 11 or 12 bits..
 	 */
-	p = (msm_pixmap_get_pitch(pix) / 32) & 0xfff;
+	p = (exaGetPixmapPitch(pix) / 32) & 0xfff;
 
 	TRACE_EXA("SRC: %p, %dx%d,%d,%d", bo, w, h, p, pix->drawable.depth);
 
@@ -853,14 +853,6 @@ MSMPrepareAccess(PixmapPtr pPixmap, int index)
 	if (pPixmap->devPrivate.ptr == NULL)
 		pPixmap->devPrivate.ptr = fd_bo_map(priv->bo);
 
-	if (pPixmap->drawable.bitsPerPixel == 16 ||
-			pPixmap->drawable.bitsPerPixel == 32) {
-		priv->SavedPitch = pPixmap->devKind;
-
-		pPixmap->devKind = ((pPixmap->drawable.width + 31) & ~31) *
-				(pPixmap->drawable.bitsPerPixel >> 3);
-	}
-
 	return TRUE;
 }
 
@@ -872,11 +864,6 @@ MSMFinishAccess(PixmapPtr pPixmap, int index)
 
 	if (!priv || !priv->bo)
 		return;
-
-	if (priv->SavedPitch) {
-		pPixmap->devKind = priv->SavedPitch;
-		priv->SavedPitch = 0;
-	}
 
 	pPixmap->devPrivate.ptr = NULL;
 }

@@ -91,7 +91,6 @@ MSMDRI2CreateBuffer(DrawablePtr pDraw, unsigned int attachment,
 	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
 	MSMDRI2BufferPtr buf = calloc(1, sizeof(*buf));
 	PixmapPtr pPixmap;
-	struct fd_bo *bo;
 	int ret;
 
 	DEBUG_MSG("pDraw=%p, attachment=%d, format=%08x",
@@ -108,15 +107,13 @@ MSMDRI2CreateBuffer(DrawablePtr pDraw, unsigned int attachment,
 		pPixmap = createpix(pDraw);
 	}
 
-	bo = msm_get_pixmap_bo(pPixmap);
-
 	DRIBUF(buf)->attachment = attachment;
-	DRIBUF(buf)->pitch = exaGetPixmapPitch(pPixmap);
 	DRIBUF(buf)->cpp = pPixmap->drawable.bitsPerPixel / 8;
 	DRIBUF(buf)->format = format;
 	buf->pPixmap = pPixmap;
 
-	ret = fd_bo_get_name(bo, &DRIBUF(buf)->name);
+	ret = msm_get_pixmap_name(pPixmap, &DRIBUF(buf)->name,
+			&DRIBUF(buf)->pitch);
 	if (ret) {
 		ERROR_MSG("could not get buffer name: %d", ret);
 		MSMDRI2DestroyBuffer(pDraw, DRIBUF(buf));

@@ -131,7 +131,6 @@ typedef struct _MSMRec
 
 struct msm_pixmap_priv {
 	struct fd_bo *bo;
-	int SavedPitch;
 };
 
 /* Macro to get the private record from the ScreenInfo structure */
@@ -156,11 +155,8 @@ void MSMCrtcSetup(ScrnInfoPtr pScrn);
 
 #define xFixedtoDouble(_f) (double) ((_f)/(double) xFixed1)
 
-void *msm_pixmap_hostptr(PixmapPtr);
-int msm_pixmap_offset(PixmapPtr);
-int msm_pixmap_get_pitch(PixmapPtr pix);
-Bool msm_pixmap_in_gem(PixmapPtr);
 struct fd_bo *msm_get_pixmap_bo(PixmapPtr);
+int msm_get_pixmap_name(PixmapPtr pix, unsigned int *name, unsigned int *pitch);
 
 
 /**
