@@ -88,7 +88,7 @@ MSMDRI2CreateBuffer(DrawablePtr pDraw, unsigned int attachment,
 		unsigned int format)
 {
 	ScreenPtr pScreen = pDraw->pScreen;
-	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	MSMDRI2BufferPtr buf = calloc(1, sizeof(*buf));
 	PixmapPtr pPixmap;
 	int ret;
@@ -131,7 +131,7 @@ MSMDRI2DestroyBuffer(DrawablePtr pDraw, DRI2BufferPtr buffer)
 {
 	MSMDRI2BufferPtr buf = MSMBUF(buffer);
 	ScreenPtr pScreen = buf->pPixmap->drawable.pScreen;
-	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 
 	DEBUG_MSG("pDraw=%p, buffer=%p", pDraw, buffer);
 
@@ -148,7 +148,7 @@ MSMDRI2CopyRegion(DrawablePtr pDraw, RegionPtr pRegion,
 		DRI2BufferPtr pDstBuffer, DRI2BufferPtr pSrcBuffer)
 {
 	ScreenPtr pScreen = pDraw->pScreen;
-	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	DrawablePtr pSrcDraw = dri2draw(pDraw, pSrcBuffer);
 	DrawablePtr pDstDraw = dri2draw(pDraw, pDstBuffer);
 	RegionPtr pCopyClip;
@@ -187,7 +187,7 @@ MSMDRI2CopyRegion(DrawablePtr pDraw, RegionPtr pRegion,
 Bool
 MSMDRI2ScreenInit(ScreenPtr pScreen)
 {
-	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	MSMPtr pMsm = MSMPTR(pScrn);
 	DRI2InfoRec info = {
 			.version			= 3,

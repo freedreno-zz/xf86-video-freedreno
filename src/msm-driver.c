@@ -589,7 +589,7 @@ MSMSaveScreen(ScreenPtr pScreen, int mode)
 static Bool
 MSMCloseScreen(CLOSE_SCREEN_ARGS_DECL)
 {
-	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 
 	MSMPtr pMsm = MSMPTR(pScrn);
 
@@ -619,7 +619,7 @@ MSMCloseScreen(CLOSE_SCREEN_ARGS_DECL)
 static Bool
 MSMScreenInit(SCREEN_INIT_ARGS_DECL)
 {
-	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	MSMPtr pMsm = MSMPTR(pScrn);
 
 	DEBUG_MSG("screen-init");

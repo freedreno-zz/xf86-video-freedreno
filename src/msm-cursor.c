@@ -116,7 +116,7 @@ MSMCursorLoadARGB(MSMPtr pMsm, CARD32 * image)
 Bool
 MSMCursorInit(ScreenPtr pScreen)
 {
-	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 
 	MSMPtr pMsm = MSMPTR(pScrn);
 

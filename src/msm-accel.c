@@ -186,7 +186,7 @@ next_ring(MSMPtr pMsm)
 Bool
 MSMSetupAccel(ScreenPtr pScreen)
 {
-	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	MSMPtr pMsm = MSMPTR(pScrn);
 	Bool ret;
 	struct fd_ringbuffer *ring;

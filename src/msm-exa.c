@@ -46,7 +46,7 @@
 #define ENABLE_SW_FALLBACK_REPORTS        0
 
 #define MSM_LOCALS(pDraw) \
-    ScrnInfoPtr pScrn = xf86Screens[((DrawablePtr)(pDraw))->pScreen->myNum]; \
+    ScrnInfoPtr pScrn = xf86ScreenToScrn(((DrawablePtr)(pDraw))->pScreen); \
     MSMPtr pMsm = MSMPTR(pScrn);                                    \
     struct fd_ringbuffer *ring = NULL; (void)ring;                  \
     struct exa_state *exa = pMsm->exa; (void)exa
@@ -789,7 +789,7 @@ MSMDoneComposite(PixmapPtr pDst)
 static int
 MSMMarkSync(ScreenPtr pScreen)
 {
-	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	MSMPtr pMsm = MSMPTR(pScrn);
 	return pMsm->ring.timestamp;
 }
@@ -810,7 +810,7 @@ MSMMarkSync(ScreenPtr pScreen)
 static void
 MSMWaitMarker(ScreenPtr pScreen, int marker)
 {
-	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	MSMPtr pMsm = MSMPTR(pScrn);
 	FIRE_RING(pMsm);
 	TRACE_EXA("WAIT: %d", pMsm->ring.timestamp);
@@ -877,7 +877,7 @@ MSMCreatePixmap2(ScreenPtr pScreen, int width, int height,
 		int *new_fb_pitch)
 {
 	struct msm_pixmap_priv *priv;
-	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	MSMPtr pMsm = MSMPTR(pScrn);
 	int pitch, size;
 
@@ -930,7 +930,7 @@ MSMDestroyPixmap(ScreenPtr pScreen, void *dpriv)
 Bool
 MSMSetupExa(ScreenPtr pScreen)
 {
-	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	MSMPtr pMsm = MSMPTR(pScrn);
 	ExaDriverPtr pExa;
 

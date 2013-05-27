@@ -137,7 +137,7 @@ struct msm_pixmap_priv {
 #define MSMPTR(p) ((MSMPtr) ((p)->driverPrivate))
 
 #define MSMPTR_FROM_PIXMAP(_x)         \
-		MSMPTR(xf86Screens[(_x)->drawable.pScreen->myNum])
+		MSMPTR(xf86ScreenToScrn((_x)->drawable.pScreen))
 
 Bool MSMSetupAccel(ScreenPtr pScreen);
 Bool MSMSetupExa(ScreenPtr);
