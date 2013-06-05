@@ -67,7 +67,7 @@ PKG_CHECK_MODULES(XEXT, [xextproto >= 7.0.99.1],
 	HAVE_XEXTPROTO_71="no")
 AM_CONDITIONAL(HAVE_XEXTPROTO_71, [ test "$HAVE_XEXTPROTO_71" = "yes" ])
 
-PKG_CHECK_MODULES([XATRACKER], [xatracker],
+PKG_CHECK_MODULES([XATRACKER], [xafd >= 2.0.0],
 	BUILD_XA=yes; AC_DEFINE(HAVE_XA, 1, [xa state tracker available]),
 	BUILD_XA=no)
 AM_CONDITIONAL(BUILD_XA, [test "$BUILD_XA" = "yes"])
