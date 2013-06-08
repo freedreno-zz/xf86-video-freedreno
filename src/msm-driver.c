@@ -754,7 +754,8 @@ MSMScreenInit(SCREEN_INIT_ARGS_DECL)
 		return FALSE;
 	}
 
-	/* FIXME: Set up DPMS here */
+	/* Setup power management: */
+	xf86DPMSInit(pScreen, xf86DPMSSet, 0);
 
 	pScreen->SaveScreen = MSMSaveScreen;
 

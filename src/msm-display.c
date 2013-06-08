@@ -56,7 +56,11 @@ MSMCrtcGammaSet(xf86CrtcPtr crtc,
 static void
 MSMCrtcDPMS(xf86CrtcPtr crtc, int mode)
 {
-	/* TODO: Implement DPMS */
+	ScrnInfoPtr pScrn = crtc->scrn;
+	MSMPtr pMsm = MSMPTR(pScrn);
+	int ret = ioctl(pMsm->fd, FBIOBLANK, mode);
+	if (ret)
+		xf86DrvMsg(pScrn->scrnIndex, X_ERROR, "Unable to set dpms: %m\n");
 }
 
 static Bool
