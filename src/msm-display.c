@@ -143,6 +143,7 @@ MSMCrtcModeSet(xf86CrtcPtr crtc, DisplayModePtr mode,
 static void
 MSMCrtcCommit(xf86CrtcPtr crtc)
 {
+	MSMCrtcDPMS(crtc, DPMSModeOn);
 }
 
 static void *
