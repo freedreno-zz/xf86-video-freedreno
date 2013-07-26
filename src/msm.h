@@ -34,9 +34,6 @@
 #include "damage.h"
 #include "exa.h"
 
-#include <linux/fb.h>
-#include <linux/ioctl.h>
-
 #include <freedreno_drmif.h>
 #include <freedreno_ringbuffer.h>
 
@@ -57,47 +54,21 @@ typedef enum
 	OPTION_DEBUG,
 } MSMOpts;
 
-typedef enum
-{
-	MSM_MDP_VERSION_22,
-	MSM_MDP_VERSION_31,
-	MSM_MDP_VERSION_40,
-} MSMChipType;
-
-struct kgsl_ringbuffer;
 struct exa_state;
 
 typedef struct _MSMRec
 {
-	/* File descriptor for the framebuffer device */
-	int fd;
-
-	/* Fixed and var strutures from the framebuffer */
-	struct fb_fix_screeninfo fixed_info;
-	struct fb_var_screeninfo mode_info;
-
-	/* Pointer to the mapped framebuffer memory */
-	void *fbmem;
-
-	/* Processor identifier */
-	MSMChipType chipID;
-
-	/* Default mode for X */
-	DisplayModeRec default_mode;
-
 	/* EXA driver structure */
 	ExaDriverPtr pExa;
 
 	Bool dri;
 
-	/* Place holder for the standard close screen function */
 	CloseScreenProcPtr CloseScreen;
-
+	CreateScreenResourcesProcPtr CreateScreenResources;
 	ScreenBlockHandlerProcPtr BlockHandler;
 
+	Bool NoAccel;
 	Bool HWCursor;
-	int HWCursorState;
-	int defaultVsync;
 
 	int drmFD;
 
@@ -124,9 +95,6 @@ typedef struct _MSMRec
 	struct fd_bo *scanout;
 
 	OptionInfoPtr     options;
-	PixmapPtr rotatedPixmap;
-	Bool isFBSurfaceStale;
-	PictTransform   *currentTransform;
 } MSMRec, *MSMPtr;
 
 struct msm_pixmap_priv {
@@ -136,19 +104,22 @@ struct msm_pixmap_priv {
 /* Macro to get the private record from the ScreenInfo structure */
 #define MSMPTR(p) ((MSMPtr) ((p)->driverPrivate))
 
+#define MSMPTR_FROM_SCREEN(_x)         \
+		MSMPTR(xf86ScreenToScrn(_x))
+
 #define MSMPTR_FROM_PIXMAP(_x)         \
-		MSMPTR(xf86ScreenToScrn((_x)->drawable.pScreen))
+		MSMPTR_FROM_SCREEN((_x)->drawable.pScreen)
 
 Bool MSMSetupAccel(ScreenPtr pScreen);
-Bool MSMSetupExa(ScreenPtr);
+Bool MSMSetupExa(ScreenPtr, Bool softexa);
 Bool MSMDRI2ScreenInit(ScreenPtr pScreen);
 void MSMDRI2CloseScreen(ScreenPtr pScreen);
-void MSMSetCursorPosition(MSMPtr pMsm, int x, int y);
-void MSMCursorEnable(MSMPtr pMsm, Bool enable);
-void MSMCursorLoadARGB(MSMPtr pMsm, CARD32 * image);
-Bool MSMCursorInit(ScreenPtr pScreen);
-void MSMOutputSetup(ScrnInfoPtr pScrn);
-void MSMCrtcSetup(ScrnInfoPtr pScrn);
+
+Bool fbmode_pre_init(ScrnInfoPtr pScrn);
+Bool fbmode_cursor_init(ScreenPtr pScreen);
+Bool fbmode_screen_init(ScreenPtr pScreen);
+void fbmode_screen_fini(ScreenPtr pScreen);
+
 
 #define MSM_OFFSCREEN_GEM 0x01
 
@@ -156,8 +127,8 @@ void MSMCrtcSetup(ScrnInfoPtr pScrn);
 #define xFixedtoDouble(_f) (double) ((_f)/(double) xFixed1)
 
 struct fd_bo *msm_get_pixmap_bo(PixmapPtr);
+void msm_set_pixmap_bo(PixmapPtr pix, struct fd_bo *bo);
 int msm_get_pixmap_name(PixmapPtr pix, unsigned int *name, unsigned int *pitch);
-
 
 /**
  * This controls whether debug statements (and function "trace" enter/exit)
@@ -165,6 +136,14 @@ int msm_get_pixmap_name(PixmapPtr pix, unsigned int *name, unsigned int *pitch);
  */
 extern Bool msmDebug;
 
+static inline unsigned int
+MSMAlignedStride(unsigned int width, unsigned int bitsPerPixel)
+{
+	const unsigned align = 32;
+	unsigned int alignedWidth;
+	alignedWidth = (width + (align - 1)) & ~(align - 1);
+	return ((alignedWidth * bitsPerPixel) + 7) / 8;
+}
 
 /* Various logging/debug macros for use in the X driver and the external
  * sub-modules:

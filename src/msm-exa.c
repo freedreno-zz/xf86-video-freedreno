@@ -180,9 +180,9 @@ out_dstpix(struct fd_ringbuffer *ring, PixmapPtr pix)
 			G2D_CFGn_PITCH(p) |
 			G2D_CFGn_FORMAT(pixfmt(pix)));
 	OUT_RING (ring, REGM(G2D_BASE0, 1));
-	OUT_RELOC(ring, bo);
+	OUT_RELOC(ring, bo, TRUE);
 	OUT_RING (ring, REGM(GRADW_TEXBASE, 1));
-	OUT_RELOC(ring, bo);
+	OUT_RELOC(ring, bo, TRUE);
 	OUT_RING (ring, REGM(GRADW_TEXCFG, 1));
 	OUT_RING (ring, 0x40000000 |
 			GRADW_TEXCFG_PITCH(p) |
@@ -218,7 +218,7 @@ out_srcpix(struct fd_ringbuffer *ring, PixmapPtr pix)
 	OUT_RING (ring, texcfg);                /* GRADW_TEXCFG */
 	OUT_RING (ring, GRADW_TEXSIZE_WIDTH(w) |/* GRADW_TEXSIZE */
 			GRADW_TEXSIZE_HEIGHT(h));
-	OUT_RELOC(ring, bo);                    /* GRADW_TEXBASE */
+	OUT_RELOC(ring, bo, FALSE);             /* GRADW_TEXBASE */
 }
 
 /**
@@ -812,20 +812,20 @@ MSMWaitMarker(ScreenPtr pScreen, int marker)
 {
 	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	MSMPtr pMsm = MSMPTR(pScrn);
-	FIRE_RING(pMsm);
-	TRACE_EXA("WAIT: %d", pMsm->ring.timestamp);
-	fd_pipe_wait(pMsm->pipe, pMsm->ring.timestamp);
+	if (pMsm->pipe) {
+		FIRE_RING(pMsm);
+		TRACE_EXA("WAIT: %d", pMsm->ring.timestamp);
+		fd_pipe_wait(pMsm->pipe, pMsm->ring.timestamp);
+	}
 }
 
 static Bool
 MSMPixmapIsOffscreen(PixmapPtr pPixmap)
 {
 	ScreenPtr pScreen = pPixmap->drawable.pScreen;
-	MSMPtr pMsm = MSMPTR_FROM_PIXMAP(pPixmap);
-
 	struct msm_pixmap_priv *priv;
-	if ((pScreen->GetScreenPixmap(pScreen) == pPixmap) ||
-			(pMsm->rotatedPixmap == pPixmap)){
+
+	if ((pScreen->GetScreenPixmap(pScreen) == pPixmap)) {
 		return TRUE;
 	}
 
@@ -840,6 +840,15 @@ MSMPixmapIsOffscreen(PixmapPtr pPixmap)
 static Bool
 MSMPrepareAccess(PixmapPtr pPixmap, int index)
 {
+	static const unsigned int usage[EXA_NUM_PREPARE_INDICES] = {
+			[EXA_PREPARE_DEST] = DRM_FREEDRENO_PREP_READ | DRM_FREEDRENO_PREP_WRITE,
+			[EXA_PREPARE_SRC]  = DRM_FREEDRENO_PREP_READ,
+			[EXA_PREPARE_MASK] = DRM_FREEDRENO_PREP_READ,
+			[EXA_PREPARE_AUX_DEST] = DRM_FREEDRENO_PREP_READ | DRM_FREEDRENO_PREP_WRITE,
+			[EXA_PREPARE_AUX_SRC]  = DRM_FREEDRENO_PREP_READ,
+			[EXA_PREPARE_AUX_MASK] = DRM_FREEDRENO_PREP_READ,
+	};
+	MSM_LOCALS(pPixmap);
 	struct msm_pixmap_priv *priv;
 
 	priv = exaGetPixmapDriverPrivate(pPixmap);
@@ -850,8 +859,9 @@ MSMPrepareAccess(PixmapPtr pPixmap, int index)
 	if (!priv->bo)
 		return TRUE;
 
-	if (pPixmap->devPrivate.ptr == NULL)
-		pPixmap->devPrivate.ptr = fd_bo_map(priv->bo);
+	fd_bo_cpu_prep(priv->bo, pMsm->pipe, usage[index]);
+
+	pPixmap->devPrivate.ptr = fd_bo_map(priv->bo);
 
 	return TRUE;
 }
@@ -865,11 +875,10 @@ MSMFinishAccess(PixmapPtr pPixmap, int index)
 	if (!priv || !priv->bo)
 		return;
 
+	fd_bo_cpu_fini(priv->bo);
+
 	pPixmap->devPrivate.ptr = NULL;
 }
-
-#define EXA_ALIGN(offset, align) (((offset) + (align) - 1) - \
-	(((offset) + (align) - 1) % (align)))
 
 static void *
 MSMCreatePixmap2(ScreenPtr pScreen, int width, int height,
@@ -881,7 +890,7 @@ MSMCreatePixmap2(ScreenPtr pScreen, int width, int height,
 	MSMPtr pMsm = MSMPTR(pScrn);
 	int pitch, size;
 
-	pitch = EXA_ALIGN(width * bpp, pMsm->pExa->pixmapPitchAlign * 8) / 8;
+	pitch = MSMAlignedStride(width, bpp);
 	size = pitch * height;
 
 	*new_fb_pitch = pitch;
@@ -927,8 +936,28 @@ MSMDestroyPixmap(ScreenPtr pScreen, void *dpriv)
 	free(priv);
 }
 
+static Bool
+MSMPrepareSolidFail(PixmapPtr pPixmap, int alu, Pixel planemask, Pixel fg)
+{
+	return FALSE;
+}
+
+static Bool
+MSMPrepareCopyFail(PixmapPtr pSrcPixmap, PixmapPtr pDstPixmap, int dx, int dy,
+		int alu, Pixel planemask)
+{
+	return FALSE;
+}
+
+static Bool
+MSMPrepareCompositeFail(int op, PicturePtr pSrcPicture, PicturePtr pMaskPicture,
+		PicturePtr pDstPicture, PixmapPtr pSrc, PixmapPtr pMask, PixmapPtr pDst)
+{
+	return FALSE;
+}
+
 Bool
-MSMSetupExa(ScreenPtr pScreen)
+MSMSetupExa(ScreenPtr pScreen, Bool softexa)
 {
 	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	MSMPtr pMsm = MSMPTR(pScrn);
@@ -952,17 +981,11 @@ MSMSetupExa(ScreenPtr pScreen)
 	pExa->exa_major = 2;
 	pExa->exa_minor = 2;
 
-	pExa->memoryBase = pMsm->fbmem;
-
 	/* Max blit extents that hw supports */
 	pExa->maxX = 2048;
 	pExa->maxY = 2048;
 
 	pExa->flags = EXA_OFFSCREEN_PIXMAPS | EXA_HANDLES_PIXMAPS | EXA_SUPPORTS_PREPARE_AUX;
-
-	pExa->offScreenBase =
-			(pMsm->fixed_info.line_length * pMsm->mode_info.yres);
-	pExa->memorySize = pMsm->fixed_info.smem_len;
 
 	/* Align pixmap offsets along page boundaries */
 	pExa->pixmapOffsetAlign = 4096;
@@ -993,6 +1016,13 @@ MSMSetupExa(ScreenPtr pScreen)
 	pExa->DestroyPixmap      = MSMDestroyPixmap;
 	pExa->PrepareAccess      = MSMPrepareAccess;
 	pExa->FinishAccess       = MSMFinishAccess;
+
+	if (softexa) {
+		DEBUG_MSG("soft-exa");
+		pExa->PrepareSolid   = MSMPrepareSolidFail;
+		pExa->PrepareCopy    = MSMPrepareCopyFail;
+		pExa->PrepareComposite = MSMPrepareCompositeFail;
+	}
 
 	return exaDriverInit(pScreen, pMsm->pExa);
 }

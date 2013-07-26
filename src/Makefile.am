@@ -8,13 +8,11 @@ freedreno_drv_la_LIBADD = @XORG_LIBS@
 freedreno_drv_ladir = @moduledir@/drivers
 
 freedreno_drv_la_SOURCES = \
+	fbmode_display.c \
 	msm-driver.c \
 	msm-accel.c \
 	msm-exa.c \
 	msm-dri2.c \
-	msm-output.c \
-	msm-display.c \
-	msm-cursor.c \
 	msm-pixmap.c
 
 EXTRA_DIST = \

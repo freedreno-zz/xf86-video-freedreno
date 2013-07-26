@@ -42,21 +42,22 @@ msm_get_pixmap_bo(PixmapPtr pix)
 	if (priv && priv->bo)
 		return priv->bo;
 
-	/* TODO: perhaps the special handling for scanout pixmap should be done
-	 * elsewhere so it isn't in a hot path.. ie. when the scanout buffer is
-	 * allocated..
-	 */
-	if (priv) {
-		ScreenPtr pScreen = pix->drawable.pScreen;
-		MSMPtr pMsm = MSMPTR_FROM_PIXMAP(pix);
-		// TODO .. how to handle offset for rotated pixmap.. worry about that later
-		if (pScreen->GetScreenPixmap(pScreen) == pix) {
-			priv->bo = pMsm->scanout;
-			return priv->bo;
-		}
-	}
+	assert(!priv);
 
 	return NULL;
+}
+
+void
+msm_set_pixmap_bo(PixmapPtr pix, struct fd_bo *bo)
+{
+	struct msm_pixmap_priv *priv = exaGetPixmapDriverPrivate(pix);
+
+	if (priv) {
+		struct fd_bo *old_bo = priv->bo;
+		priv->bo = bo ? fd_bo_ref(bo) : NULL;
+		if (old_bo)
+			fd_bo_del(old_bo);
+	}
 }
 
 int
