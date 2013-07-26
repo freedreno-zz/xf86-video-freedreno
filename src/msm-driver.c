@@ -38,8 +38,6 @@
 #include <errno.h>
 #include <sys/mman.h>
 #include <stdint.h>
-#include <linux/msm_kgsl.h>
-#include <linux/msm_mdp.h>
 
 #include "xf86.h"
 #include "damage.h"
@@ -84,7 +82,10 @@ static const OptionInfoRec MSMOptions[] = {
 		{-1, NULL, OPTV_NONE, {0}, FALSE}
 };
 
-// TODO make this a config option
+
+static Bool MSMEnterVT(VT_FUNC_ARGS_DECL);
+static void MSMLeaveVT(VT_FUNC_ARGS_DECL);
+
 Bool msmDebug = TRUE;
 
 static void
@@ -148,104 +149,21 @@ MSMInitDRM(ScrnInfoPtr pScrn)
 	return TRUE;
 }
 
-/* Get the current mode from the framebuffer mode and
- * convert it into xfree86 timings
- */
-
-static void
-MSMGetDefaultMode(MSMPtr pMsm)
-{
-	char name[32];
-	sprintf(name, "%dx%d", pMsm->mode_info.xres, pMsm->mode_info.yres);
-
-	pMsm->default_mode.name = strdup(name);
-
-	if (pMsm->default_mode.name == NULL)
-		pMsm->default_mode.name = "";
-
-	pMsm->default_mode.next = &pMsm->default_mode;
-	pMsm->default_mode.prev = &pMsm->default_mode;
-	pMsm->default_mode.type |= M_T_BUILTIN | M_T_PREFERRED;
-
-	pMsm->default_mode.HDisplay = pMsm->mode_info.xres;
-	pMsm->default_mode.HSyncStart =
-			pMsm->default_mode.HDisplay + pMsm->mode_info.right_margin;
-	pMsm->default_mode.HSyncEnd =
-			pMsm->default_mode.HSyncStart + pMsm->mode_info.hsync_len;
-	pMsm->default_mode.HTotal =
-			pMsm->default_mode.HSyncEnd + pMsm->mode_info.left_margin;
-
-	pMsm->default_mode.VDisplay = pMsm->mode_info.yres;
-	pMsm->default_mode.VSyncStart =
-			pMsm->default_mode.VDisplay + pMsm->mode_info.lower_margin;
-	pMsm->default_mode.VSyncEnd =
-			pMsm->default_mode.VSyncStart + pMsm->mode_info.vsync_len;
-	pMsm->default_mode.VTotal =
-			pMsm->default_mode.VSyncEnd + pMsm->mode_info.upper_margin;
-
-	/* The clock number we get is not the actual pixclock for the display,
-	 * which automagically updates at a fixed rate.  There is no good way
-	 * to automatically figure out the fixed rate, so we use a config
-	 * value */
-
-	pMsm->default_mode.Clock = (pMsm->defaultVsync *
-			pMsm->default_mode.HTotal *
-			pMsm->default_mode.VTotal) / 1000;
-
-	pMsm->default_mode.CrtcHDisplay = pMsm->default_mode.HDisplay;
-	pMsm->default_mode.CrtcHSyncStart = pMsm->default_mode.HSyncStart;
-	pMsm->default_mode.CrtcHSyncEnd = pMsm->default_mode.HSyncEnd;
-	pMsm->default_mode.CrtcHTotal = pMsm->default_mode.HTotal;
-
-	pMsm->default_mode.CrtcVDisplay = pMsm->default_mode.VDisplay;
-	pMsm->default_mode.CrtcVSyncStart = pMsm->default_mode.VSyncStart;
-	pMsm->default_mode.CrtcVSyncEnd = pMsm->default_mode.VSyncEnd;
-	pMsm->default_mode.CrtcVTotal = pMsm->default_mode.VTotal;
-
-	pMsm->default_mode.CrtcHAdjusted = FALSE;
-	pMsm->default_mode.CrtcVAdjusted = FALSE;
-}
-
-static Bool
-MSMCrtcResize(ScrnInfoPtr pScrn, int width, int height)
-{
-	MSMPtr pMsm = MSMPTR(pScrn);
-	int	oldx = pScrn->virtualX;
-	int	oldy = pScrn->virtualY;
-	ScreenPtr   screen = screenInfo.screens[pScrn->scrnIndex];
-	if (oldx == width && oldy == height)
-		return TRUE;
-	pScrn->virtualX = width;
-	pScrn->virtualY = height;
-	pScrn->displayWidth = width;
-	(*screen->ModifyPixmapHeader)((*screen->GetScreenPixmap)(screen),
-			width, height, pScrn->depth, pScrn->bitsPerPixel, pScrn->displayWidth
-			* (pScrn->bitsPerPixel / 8), NULL);
-	pMsm->isFBSurfaceStale = TRUE;
-	return TRUE;
-}
-
-static const xf86CrtcConfigFuncsRec MSMCrtcConfigFuncs = {
-		MSMCrtcResize,
-};
-
 /* This is the main initialization function for the screen */
 
 static Bool
 MSMPreInit(ScrnInfoPtr pScrn, int flags)
 {
 	MSMPtr pMsm;
-	EntityInfoPtr pEnt;
-	const char *dev;
-	int mdpver, panelid;
-	int depth, fbbpp;
 	rgb defaultWeight = { 0, 0, 0 };
-	int vsync;
+	Gamma zeros = { 0.0, 0.0, 0.0 };
 
 	DEBUG_MSG("pre-init");
 
 	/* Omit ourselves from auto-probing (which is bound to
 	 * fail on our hardware anyway)
+	 *
+	 * TODO we could probe for drm device..
 	 */
 
 	if (flags & PROBE_DETECT) {
@@ -277,163 +195,48 @@ MSMPreInit(ScrnInfoPtr pScrn, int flags)
 		return FALSE;
 	}
 
-	pEnt = xf86GetEntityInfo(pScrn->entityList[0]);
-
-	/* Open the FB device specified by the user */
-	dev = xf86FindOptionValue(pEnt->device->options, "fb");
-
-	pMsm->fd = open(dev, O_RDWR, 0);
-
-	if (pMsm->fd < 0) {
-		ERROR_MSG("Opening '%s' failed: %s", dev, strerror(errno));
-		free(pMsm);
-		return FALSE;
-	}
-
-	/* Unblank the screen if it was previously blanked */
-	ioctl(pMsm->fd, FBIOBLANK, FB_BLANK_UNBLANK);
-
-	/* Make sure the software refresher is on */
-	ioctl(pMsm->fd, MSMFB_RESUME_SW_REFRESHER, 0);
-
-	/* Get the fixed info (par) structure */
-
-	if (ioctl(pMsm->fd, FBIOGET_FSCREENINFO, &pMsm->fixed_info)) {
-		ERROR_MSG("Unable to read hardware info from %s: %s",
-				dev, strerror(errno));
-		free(pMsm);
-		return FALSE;
-	}
-
-	/* Parse the ID and figure out what version of the MDP and what
-	 * panel ID we have - default to the MDP3 */
-
-	pMsm->chipID = MSM_MDP_VERSION_31;
-
-	if (sscanf(pMsm->fixed_info.id, "msmfb%d_%x", &mdpver, &panelid) < 2) {
-		WARNING_MSG("Unable to determine the MDP version - assume 3.1");
-	}
-	else {
-		switch (mdpver) {
-		case 22:
-			pMsm->chipID = MSM_MDP_VERSION_22;
-			break;
-		case 31:
-			pMsm->chipID = MSM_MDP_VERSION_31;
-			break;
-		case 40:
-			pMsm->chipID = MSM_MDP_VERSION_40;
-			break;
-		default:
-			WARNING_MSG("Unable to determine the MDP version - assume 3.1");
-			break;
-		}
-	}
-
-	/* FIXME:  If we want to parse the panel type, it happens here */
-
-	/* Setup memory */
-
-	/* FIXME:  This is where we will be in close communication with
-	 * the fbdev driver to allocate memory.   In the mean time, we
-	 * just reuse the framebuffer memory */
-
-	pScrn->videoRam = pMsm->fixed_info.smem_len;
-
-	/* Get the current screen setting */
-	if (ioctl(pMsm->fd, FBIOGET_VSCREENINFO, &pMsm->mode_info)) {
-		ERROR_MSG("Unable to read the current mode from %s: %s",
-				dev, strerror(errno));
-
-		free(pMsm);
-		return FALSE;
-	}
-
-	/* msm-fb is made of fail.. need to pan otherwise backlight
-	 * driver doesn't get kicked and we end up with backlight off.
-	 * Makes perfect sense.
-	 */
-	pMsm->mode_info.yoffset = 1;
-	if (ioctl(pMsm->fd, FBIOPAN_DISPLAY, &pMsm->mode_info)) {
-		ERROR_MSG("could not pan on %s: %s", dev, strerror(errno));
-	}
-	/* we have to do this twice because if we were previously
-	 * panned to offset 1, then the first FBIOPAN_DISPLAY wouldn't
-	 * do anything.
-	 */
-	pMsm->mode_info.yoffset = 0;
-	if (ioctl(pMsm->fd, FBIOPAN_DISPLAY, &pMsm->mode_info)) {
-		ERROR_MSG("could not pan on %s: %s", dev, strerror(errno));
-	}
-
-	switch(pMsm->mode_info.bits_per_pixel) {
-	case 16:
-		depth = 16;
-		fbbpp = 16;
-		break;
-	case 24:
-	case 32:
-		depth = 24;
-		fbbpp = 32;
-		break;
-	default:
-		ERROR_MSG("The driver can only support 16bpp and 24bpp output");
-		free(pMsm);
-		return FALSE;
-	}
-
-	if (!xf86SetDepthBpp(pScrn, depth, 0, fbbpp,
-			Support24bppFb | Support32bppFb |
-			SupportConvert32to24 | SupportConvert24to32)) {
-		ERROR_MSG("Unable to set bitdepth");
-		free(pMsm);
-		return FALSE;
-	}
-
-	/* Set the color information in the mode structure to be set when the
-      screen initializes.  This might seem like a redundant step, but
-      at least on the 8650A, the default color setting is RGBA, not ARGB,
-      so setting the color information here insures that the framebuffer
-      mode is what we expect */
-
-	switch(pScrn->depth) {
-	case 16:
-		pMsm->mode_info.bits_per_pixel = 16;
-		pMsm->mode_info.red.offset = 11;
-		pMsm->mode_info.green.offset = 5;
-		pMsm->mode_info.blue.offset = 0;
-		pMsm->mode_info.red.length = 5;
-		pMsm->mode_info.green.length = 6;
-		pMsm->mode_info.blue.length = 5;
-		pMsm->mode_info.red.msb_right = 0;
-		pMsm->mode_info.green.msb_right = 0;
-		pMsm->mode_info.blue.msb_right = 0;
-		pMsm->mode_info.transp.offset = 0;
-		pMsm->mode_info.transp.length = 0;
-		break;
-	case 24:
-	case 32:
-		pMsm->mode_info.bits_per_pixel = 32;
-		pMsm->mode_info.red.offset = 16;
-		pMsm->mode_info.green.offset = 8;
-		pMsm->mode_info.blue.offset = 0;
-		pMsm->mode_info.blue.length = 8;
-		pMsm->mode_info.green.length = 8;
-		pMsm->mode_info.red.length = 8;
-		pMsm->mode_info.blue.msb_right = 0;
-		pMsm->mode_info.green.msb_right = 0;
-		pMsm->mode_info.red.msb_right = 0;
-		pMsm->mode_info.transp.offset = 24;
-		pMsm->mode_info.transp.length = 8;
-		break;
-	default:
-		ERROR_MSG("The driver can only support 16bpp and 24bpp output");
-		free(pMsm);
-		return FALSE;
-	}
-
 	xf86PrintDepthBpp(pScrn);
 	pScrn->rgbBits = 8;
+
+	pScrn->progClock = TRUE;
+	pScrn->chipset = MSM_DRIVER_NAME;
+
+	INFO_MSG("MSM/Qualcomm processor (video memory: %dkB)", pScrn->videoRam / 1024);
+
+	if (!MSMInitDRM(pScrn)) {
+		ERROR_MSG("Unable to open DRM");
+		return FALSE;
+	}
+
+	if (!fbmode_pre_init(pScrn)) {
+		ERROR_MSG("fbdev modesetting failed to initialize");
+		return FALSE;
+	}
+
+	xf86CollectOptions(pScrn, NULL);
+
+	pMsm->options = malloc(sizeof(MSMOptions));
+
+	if (pMsm->options == NULL) {
+		free(pMsm);
+		return FALSE;
+	}
+
+	memcpy(pMsm->options, MSMOptions, sizeof(MSMOptions));
+	xf86ProcessOptions(pScrn->scrnIndex, pScrn->options, pMsm->options);
+
+	/* Determine if the user wants debug messages turned on: */
+	msmDebug = xf86ReturnOptValBool(pMsm->options, OPTION_DEBUG, FALSE);
+
+	/* SWCursor - default FALSE */
+	pMsm->HWCursor = !xf86ReturnOptValBool(pMsm->options, OPTION_SWCURSOR, FALSE);
+
+	xf86PrintModes(pScrn);
+
+	/* FIXME:  We will probably need to be more exact when setting
+	 * the DPI.  For now, we just use the default (96,96 I think) */
+
+	xf86SetDpi(pScrn, 0, 0);
 
 	if (!xf86SetWeight(pScrn, defaultWeight, defaultWeight)) {
 		free(pMsm);
@@ -446,135 +249,13 @@ MSMPreInit(ScrnInfoPtr pScrn, int flags)
 		return FALSE;
 	}
 
-	{
-		Gamma zeros = { 0.0, 0.0, 0.0 };
-
-		if (!xf86SetGamma(pScrn, zeros)) {
-			free(pMsm);
-			return FALSE;
-		}
-	}
-
-	pScrn->progClock = TRUE;
-	pScrn->chipset = MSM_DRIVER_NAME;
-
-	INFO_MSG("MSM/Qualcomm processor (video memory: %dkB)", pScrn->videoRam / 1024);
-
-	xf86CollectOptions(pScrn, NULL);
-
-	pMsm->options = malloc(sizeof(MSMOptions));
-
-	if (pMsm->options == NULL) {
+	if (!xf86SetGamma(pScrn, zeros)) {
 		free(pMsm);
 		return FALSE;
 	}
-
-	memcpy(pMsm->options, MSMOptions, sizeof(MSMOptions));
-
-	xf86ProcessOptions(pScrn->scrnIndex, pScrn->options, pMsm->options);
-
-	/* Determine if the user wants debug messages turned on: */
-	msmDebug = xf86ReturnOptValBool(pMsm->options, OPTION_DEBUG, FALSE);
-
-	/* SWCursor - default FALSE */
-	pMsm->HWCursor = !xf86ReturnOptValBool(pMsm->options, OPTION_SWCURSOR, FALSE);
-
-	/* DefaultVsync - default 60 */
-	pMsm->defaultVsync = 60;
-
-	if (xf86GetOptValInteger(pMsm->options, OPTION_VSYNC, &vsync)) {
-		if (vsync > 0 && vsync < 120)
-			pMsm->defaultVsync = vsync;
-	}
-
-	if (!MSMInitDRM(pScrn)) {
-		ERROR_MSG("Unable to open DRM");
-		return FALSE;
-	}
-
-	/* Set up the virtual size */
-
-	pScrn->virtualX = pScrn->display->virtualX > pMsm->mode_info.xres ?
-			pScrn->display->virtualX : pMsm->mode_info.xres;
-
-	pScrn->virtualY = pScrn->display->virtualY > pMsm->mode_info.yres ?
-			pScrn->display->virtualY : pMsm->mode_info.yres;
-
-	if (pScrn->virtualX > pMsm->mode_info.xres_virtual)
-		pScrn->virtualX = pMsm->mode_info.xres_virtual;
-
-	if (pScrn->virtualY > pMsm->mode_info.yres_virtual)
-		pScrn->virtualY = pMsm->mode_info.yres_virtual;
-
-	/* displayWidth is the width of the line in pixels */
-
-	/* The framebuffer driver should always report the line length,
-	 * but in case it doesn't, we can calculate it ourselves */
-
-	if (pMsm->fixed_info.line_length) {
-		pScrn->displayWidth = pMsm->fixed_info.line_length;
-	} else {
-		pScrn->displayWidth = pMsm->mode_info.xres_virtual *
-				pMsm->mode_info.bits_per_pixel / 8;
-	}
-
-	pScrn->displayWidth /= (pScrn->bitsPerPixel / 8);
-
-	/* Set up the view port */
-	pScrn->frameX0 = 0;
-	pScrn->frameY0 = 0;
-	pScrn->frameX1 = pMsm->mode_info.xres;
-	pScrn->frameY1 = pMsm->mode_info.yres;
-
-	MSMGetDefaultMode(pMsm);
-
-	/* Make a copy of the mode - this is important, because some
-	 * where in the RandR setup, these modes get deleted */
-
-	pScrn->modes = xf86DuplicateMode(&pMsm->default_mode);
-	pScrn->currentMode = pScrn->modes;
-
-	/* Set up the colors - this is from fbdevhw, which implies
-	 * that it is important for TrueColor and DirectColor modes
-	 */
-
-	pScrn->offset.red = pMsm->mode_info.red.offset;
-	pScrn->offset.green = pMsm->mode_info.green.offset;
-	pScrn->offset.blue = pMsm->mode_info.blue.offset;
-
-	pScrn->mask.red = ((1 << pMsm->mode_info.red.length) - 1)
-			 << pMsm->mode_info.red.offset;
-
-	pScrn->mask.green = ((1 << pMsm->mode_info.green.length) - 1)
-			 << pMsm->mode_info.green.offset;
-
-	pScrn->mask.blue = ((1 << pMsm->mode_info.blue.length) - 1)
-			 << pMsm->mode_info.blue.offset;
-
-	xf86CrtcConfigInit(pScrn, &MSMCrtcConfigFuncs);
-	MSMCrtcSetup(pScrn);
-
-	xf86CrtcSetSizeRange(pScrn,200,200,2048,2048);
-
-	/* Setup the output */
-	MSMOutputSetup(pScrn);
-
-	if (!xf86InitialConfiguration(pScrn, FALSE)) {
-		ERROR_MSG("configuration failed");
-		free(pMsm);
-		return FALSE;
-	}
-
-	xf86PrintModes(pScrn);
-
-	/* FIXME:  We will probably need to be more exact when setting
-	 * the DPI.  For now, we just use the default (96,96 I think) */
-
-	xf86SetDpi(pScrn, 0, 0);
 
 	INFO_MSG("MSM Options:");
 	INFO_MSG(" HW Cursor: %s", pMsm->HWCursor ? "Enabled" : "Disabled");
-	INFO_MSG(" Default Vsync: %d", pMsm->defaultVsync);
 
 	return TRUE;
 }
@@ -587,10 +268,31 @@ MSMSaveScreen(ScreenPtr pScreen, int mode)
 }
 
 static Bool
+MSMCreateScreenResources(ScreenPtr pScreen)
+{
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
+	MSMPtr pMsm = MSMPTR(pScrn);
+	PixmapPtr ppix;
+
+	pScreen->CreateScreenResources = pMsm->CreateScreenResources;
+	if (!(*pScreen->CreateScreenResources)(pScreen))
+		return FALSE;
+	pScreen->CreateScreenResources = MSMCreateScreenResources;
+
+	if (!MSMEnterVT(VT_FUNC_ARGS(0)))
+		return FALSE;
+
+	ppix = pScreen->GetScreenPixmap(pScreen);
+	if (ppix)
+		msm_set_pixmap_bo(ppix, pMsm->scanout);
+
+	return TRUE;
+}
+
+static Bool
 MSMCloseScreen(CLOSE_SCREEN_ARGS_DECL)
 {
 	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
-
 	MSMPtr pMsm = MSMPTR(pScrn);
 
 	DEBUG_MSG("close screen");
@@ -607,8 +309,12 @@ MSMCloseScreen(CLOSE_SCREEN_ARGS_DECL)
 		pMsm->pExa = NULL;
 	}
 
-	/* Unmap the framebuffer memory */
-	munmap(pMsm->fbmem, pMsm->fixed_info.smem_len);
+	if (pScrn->vtSema) {
+		MSMLeaveVT(VT_FUNC_ARGS(0));
+		pScrn->vtSema = FALSE;
+	}
+
+	fbmode_screen_fini(pScreen);
 
 	pScreen->BlockHandler = pMsm->BlockHandler;
 	pScreen->CloseScreen = pMsm->CloseScreen;
@@ -621,59 +327,9 @@ MSMScreenInit(SCREEN_INIT_ARGS_DECL)
 {
 	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	MSMPtr pMsm = MSMPTR(pScrn);
+	int displayWidth;
 
 	DEBUG_MSG("screen-init");
-
-#if 0
-#if defined (MSMFB_GET_PAGE_PROTECTION) && defined (MSMFB_SET_PAGE_PROTECTION)
-	/* If the frame buffer can be cached, do so.                                      */
-	/* CAUTION: This needs to be done *BEFORE* the mmap() call, or it has no effect.  */
-	/* FIXME:  The current page protection should ideally be saved here and restored  */
-	/*         when exiting the driver, but there may be little point in doing this   */
-	/*         since the XServer typically won't exit for most applications.          */
-	{
-		const int desired_fb_page_protection = pMsm->FBCache;
-		struct mdp_page_protection fb_page_protection;
-
-		// If the kernel supports the FB Caching settings infrastructure,
-		// then set the frame buffer cache settings.
-		// Otherwise, issue a warning and continue.
-		if (ioctl(pMsm->fd, MSMFB_GET_PAGE_PROTECTION, &fb_page_protection)) {
-			xf86DrvMsg(scrnIndex, X_WARNING,
-					"MSMFB_GET_PAGE_PROTECTION IOCTL: Unable to get current FB cache settings.\n");
-		}
-		else {
-			if (fb_page_protection.page_protection != desired_fb_page_protection) {
-				fb_page_protection.page_protection = desired_fb_page_protection;
-				if (ioctl(pMsm->fd, MSMFB_SET_PAGE_PROTECTION, &fb_page_protection)) {
-					xf86DrvMsg(scrnIndex, X_WARNING,
-							"MSMFB_SET_PAGE_PROTECTION IOCTL: Unable to set requested FB cache settings: %s.\n",
-							fbCacheStrings[desired_fb_page_protection]);
-				}
-			}
-		}
-	}
-#endif // defined (MSMFB_GET_PAGE_PROTECTION) && defined (MSMFB_SET_PAGE_PROTECTION)
-#endif
-
-	/* Map the framebuffer memory */
-	pMsm->fbmem = mmap(NULL, pMsm->fixed_info.smem_len,
-			PROT_READ | PROT_WRITE, MAP_SHARED, pMsm->fd, 0);
-
-	/* If we can't map the memory, then this is a short trip */
-
-	if (pMsm->fbmem == MAP_FAILED) {
-		ERROR_MSG("Unable to map the framebuffer memory: %s", strerror(errno));
-		return FALSE;
-	}
-
-	/* Set up the mode - this doesn't actually touch the hardware,
-	 * but it makes RandR all happy */
-
-	if (!xf86SetDesiredModes(pScrn)) {
-		ERROR_MSG("Unable to set the mode");
-		return FALSE;
-	}
 
 	/* Set up the X visuals */
 	miClearVisualTypes();
@@ -694,12 +350,16 @@ MSMScreenInit(SCREEN_INIT_ARGS_DECL)
 
 	/* Set up the X drawing area */
 
+	displayWidth = pScrn->displayWidth;
+	if (!displayWidth)
+		displayWidth = pScrn->virtualX;
+
 	xf86LoadSubModule(pScrn, "fb");
 
-	if (!fbScreenInit(pScreen, pMsm->fbmem,
+	if (!fbScreenInit(pScreen, NULL,
 			pScrn->virtualX, pScrn->virtualY,
 			pScrn->xDpi, pScrn->yDpi,
-			pScrn->displayWidth, pScrn->bitsPerPixel)) {
+			displayWidth, pScrn->bitsPerPixel)) {
 		ERROR_MSG("fbScreenInit failed");
 		return FALSE;
 	}
@@ -743,9 +403,12 @@ MSMScreenInit(SCREEN_INIT_ARGS_DECL)
 	miDCInitialize(pScreen, xf86GetPointerScreenFuncs());
 
 	/* Try to set up the HW cursor */
+	if (pMsm->HWCursor) {
+		pMsm->HWCursor = fbmode_cursor_init(pScreen);
 
-	if (pMsm->HWCursor == TRUE)
-		pMsm->HWCursor = MSMCursorInit(pScreen);
+		if (!pMsm->HWCursor)
+			ERROR_MSG("Hardware cursor initialization failed");
+	}
 
 	/* Set up the default colormap */
 
@@ -754,20 +417,24 @@ MSMScreenInit(SCREEN_INIT_ARGS_DECL)
 		return FALSE;
 	}
 
-	/* FIXME: Set up DPMS here */
-
 	pScreen->SaveScreen = MSMSaveScreen;
-
-	/*Set up our own CloseScreen function */
 
 	pMsm->CloseScreen = pScreen->CloseScreen;
 	pScreen->CloseScreen = MSMCloseScreen;
+
+	pMsm->CreateScreenResources = pScreen->CreateScreenResources;
+	pScreen->CreateScreenResources = MSMCreateScreenResources;
 
 	pMsm->BlockHandler = pScreen->BlockHandler;
 	pScreen->BlockHandler = MSMBlockHandler;
 
 	if (!xf86CrtcScreenInit(pScreen)) {
 		ERROR_MSG("CRTCScreenInit failed");
+		return FALSE;
+	}
+
+	if (!fbmode_screen_init(pScreen)) {
+		ERROR_MSG("fbmode_screen_init failed");
 		return FALSE;
 	}
 
@@ -787,14 +454,29 @@ MSMSwitchMode(SWITCH_MODE_ARGS_DECL)
 static Bool
 MSMEnterVT(VT_FUNC_ARGS_DECL)
 {
-	/* Nothing to do here yet - there might be some triggers that we need
-	 * to throw at the framebuffer */
+	SCRN_INFO_PTR(arg);
+	MSMPtr pMsm = MSMPTR(pScrn);
+
+	DEBUG_MSG("enter-vt");
+
+	/* Set up the mode - this doesn't actually touch the hardware,
+	 * but it makes RandR all happy */
+
+	if (!xf86SetDesiredModes(pScrn)) {
+		ERROR_MSG("Unable to set the mode");
+		return FALSE;
+	}
+
 	return TRUE;
 }
 
 static void
 MSMLeaveVT(VT_FUNC_ARGS_DECL)
 {
+	SCRN_INFO_PTR(arg);
+	MSMPtr pMsm = MSMPTR(pScrn);
+
+	DEBUG_MSG("leave-vt");
 }
 
 /* ------------------------------------------------------------ */
@@ -866,25 +548,14 @@ MSMProbe(DriverPtr drv, int flags)
 					dev, strerror(errno));
 			continue;
 		} else {
-			struct fb_fix_screeninfo info;
+			int entity, fd;
 
-			int entity;
+			fd = drmOpen("kgsl", NULL);
 
-			if (ioctl(fd, FBIOGET_FSCREENINFO, &info)) {
-				xf86Msg(X_WARNING,
-						"Unable to read hardware info "
-						"from %s: %s\n", dev, strerror(errno));
-				close(fd);
+			if (fd < 0)
 				continue;
-			}
 
 			close(fd);
-
-			/* Make sure that this is a MSM driver */
-			if (strncmp(info.id, "msmfb", 5)) {
-				xf86Msg(X_WARNING, "%s is not a MSM device: %s\n", dev, info.id);
-				continue;
-			}
 
 			foundScreen = TRUE;
 

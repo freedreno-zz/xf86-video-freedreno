@@ -47,13 +47,16 @@ OUT_RING(struct fd_ringbuffer *ring, unsigned data)
 }
 
 static inline void
-OUT_RELOC(struct fd_ringbuffer *ring, struct fd_bo *bo)
+OUT_RELOC(struct fd_ringbuffer *ring, struct fd_bo *bo, Bool write)
 {
 	if (LOG_DWORDS) {
 		ErrorF("ring[%p]: OUT_RELOC  %04x:  %p\n", ring,
 				(uint32_t)(ring->cur - ring->last_start), bo);
 	}
-	fd_ringbuffer_emit_reloc(ring, bo, 0, 0);
+	fd_ringbuffer_reloc(ring, &(struct fd_reloc){
+		.bo = bo,
+		.flags = FD_RELOC_READ | (write ? FD_RELOC_WRITE : 0),
+	});
 }
 
 static inline void

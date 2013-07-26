@@ -174,11 +174,11 @@ next_ring(MSMPtr pMsm)
 	 */
 	memcpy(ring->start, initial_state, STATE_SIZE * sizeof(uint32_t));
 	ring->cur = &ring->start[120];
-	OUT_RELOC (ring, pMsm->ring.context_bos[0]);
+	OUT_RELOC(ring, pMsm->ring.context_bos[0], TRUE);
 	ring->cur = &ring->start[122];
-	OUT_RELOC (ring, pMsm->ring.context_bos[1]);
+	OUT_RELOC(ring, pMsm->ring.context_bos[1], TRUE);
 	ring->cur = &ring->start[124];
-	OUT_RELOC (ring, pMsm->ring.context_bos[2]);
+	OUT_RELOC(ring, pMsm->ring.context_bos[2], TRUE);
 
 	fd_ringbuffer_reset(ring);
 }
@@ -188,19 +188,22 @@ MSMSetupAccel(ScreenPtr pScreen)
 {
 	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	MSMPtr pMsm = MSMPTR(pScrn);
-	Bool ret;
+	Bool ret, softexa = FALSE;
 	struct fd_ringbuffer *ring;
 
 	pMsm->pipe = fd_pipe_new(pMsm->dev, FD_PIPE_2D);
 	if (!pMsm->pipe) {
-		ERROR_MSG("fail!");
-		return FALSE;
+		ERROR_MSG("fail, no 2D pipe..!");
+		if (pMsm->NoKMS) {
+			/* fbdev mode is lame.. we need a pipe, any pipe, to get a
+			 * bo for the scanout/fbdev buffer.  So just do this instead
+			 * of special casing the PrepareAccess stuff for scanout bo:
+			 */
+			pMsm->pipe = fd_pipe_new(pMsm->dev, FD_PIPE_3D);
+		}
+		softexa = TRUE;
+		goto out;
 	}
-
-	/* Make a buffer object for the framebuffer so that the GPU MMU
-	 * can use it
-	 */
-	pMsm->scanout = fd_bo_from_fbdev(pMsm->pipe, pMsm->fd, pMsm->fixed_info.smem_len);
 
 	pMsm->ring.context_bos[0] = fd_bo_new(pMsm->dev, 0x1000,
 			DRM_FREEDRENO_GEM_TYPE_KMEM);
@@ -216,16 +219,17 @@ MSMSetupAccel(ScreenPtr pScreen)
 
 	BEGIN_RING(pMsm, 8);
 	OUT_RING  (ring, REGM(VGV1_DIRTYBASE, 3));
-	OUT_RELOC (ring, pMsm->ring.context_bos[0]); /* VGV1_DIRTYBASE */
-	OUT_RELOC (ring, pMsm->ring.context_bos[1]); /* VGV1_CBASE1 */
-	OUT_RELOC (ring, pMsm->ring.context_bos[2]); /* VGV1_UBASE2 */
+	OUT_RELOC (ring, pMsm->ring.context_bos[0], TRUE); /* VGV1_DIRTYBASE */
+	OUT_RELOC (ring, pMsm->ring.context_bos[1], TRUE); /* VGV1_CBASE1 */
+	OUT_RELOC (ring, pMsm->ring.context_bos[2], TRUE); /* VGV1_UBASE2 */
 	OUT_RING  (ring, 0x11000000);
 	OUT_RING  (ring, 0x10fff000);
 	OUT_RING  (ring, 0x10ffffff);
 	OUT_RING  (ring, 0x0d000404);
 	END_RING  (pMsm);
 
-	ret = MSMSetupExa(pScreen);
+out:
+	ret = MSMSetupExa(pScreen, softexa);
 	if (ret) {
 		pMsm->dri = MSMDRI2ScreenInit(pScreen);
 	}
