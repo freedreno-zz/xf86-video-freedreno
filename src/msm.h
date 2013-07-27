@@ -67,6 +67,7 @@ typedef struct _MSMRec
 	CreateScreenResourcesProcPtr CreateScreenResources;
 	ScreenBlockHandlerProcPtr BlockHandler;
 
+	Bool NoKMS;
 	Bool NoAccel;
 	Bool HWCursor;
 
@@ -114,6 +115,13 @@ Bool MSMSetupAccel(ScreenPtr pScreen);
 Bool MSMSetupExa(ScreenPtr, Bool softexa);
 Bool MSMDRI2ScreenInit(ScreenPtr pScreen);
 void MSMDRI2CloseScreen(ScreenPtr pScreen);
+
+Bool drmmode_pre_init(ScrnInfoPtr pScrn, int fd, int cpp);
+int drmmode_cursor_init(ScreenPtr pScreen);
+Bool drmmode_page_flip(DrawablePtr draw, PixmapPtr back, void *priv);
+void drmmode_wait_for_event(ScrnInfoPtr pScrn);
+void drmmode_screen_init(ScreenPtr pScreen);
+void drmmode_screen_fini(ScreenPtr pScreen);
 
 Bool fbmode_pre_init(ScrnInfoPtr pScrn);
 Bool fbmode_cursor_init(ScreenPtr pScreen);
