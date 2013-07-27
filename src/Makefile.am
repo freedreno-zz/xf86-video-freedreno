@@ -8,6 +8,7 @@ freedreno_drv_la_LIBADD = @XORG_LIBS@
 freedreno_drv_ladir = @moduledir@/drivers
 
 freedreno_drv_la_SOURCES = \
+	drmmode_display.c \
 	fbmode_display.c \
 	msm-driver.c \
 	msm-accel.c \

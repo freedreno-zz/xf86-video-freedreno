@@ -135,7 +135,15 @@ MSMInitDRM(ScrnInfoPtr pScrn)
 
 	drmSetServerInfo(&drm_server_info);
 
-	pMsm->drmFD = drmOpen("kgsl", NULL);
+	pMsm->NoKMS = FALSE;
+
+	pMsm->drmFD = drmOpen("msm", NULL);
+
+	if (pMsm->drmFD < 0) {
+		pMsm->drmFD = drmOpen("kgsl", NULL);
+		pMsm->NoKMS = TRUE;
+	}
+
 	if (pMsm->drmFD < 0) {
 		xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
 				"Unable to open a DRM device\n");
@@ -208,9 +216,16 @@ MSMPreInit(ScrnInfoPtr pScrn, int flags)
 		return FALSE;
 	}
 
-	if (!fbmode_pre_init(pScrn)) {
-		ERROR_MSG("fbdev modesetting failed to initialize");
-		return FALSE;
+	if (pMsm->NoKMS) {
+		if (!fbmode_pre_init(pScrn)) {
+			ERROR_MSG("fbdev modesetting failed to initialize");
+			return FALSE;
+		}
+	} else {
+		if (!drmmode_pre_init(pScrn, pMsm->drmFD, pScrn->bitsPerPixel >> 3)) {
+			ERROR_MSG("Kernel modesetting failed to initialize");
+			return FALSE;
+		}
 	}
 
 	xf86CollectOptions(pScrn, NULL);
@@ -314,7 +329,11 @@ MSMCloseScreen(CLOSE_SCREEN_ARGS_DECL)
 		pScrn->vtSema = FALSE;
 	}
 
-	fbmode_screen_fini(pScreen);
+	if (pMsm->NoKMS) {
+		fbmode_screen_fini(pScreen);
+	} else {
+		drmmode_screen_fini(pScreen);
+	}
 
 	pScreen->BlockHandler = pMsm->BlockHandler;
 	pScreen->CloseScreen = pMsm->CloseScreen;
@@ -404,7 +423,10 @@ MSMScreenInit(SCREEN_INIT_ARGS_DECL)
 
 	/* Try to set up the HW cursor */
 	if (pMsm->HWCursor) {
-		pMsm->HWCursor = fbmode_cursor_init(pScreen);
+		if (pMsm->NoKMS)
+			pMsm->HWCursor = fbmode_cursor_init(pScreen);
+		else
+			pMsm->HWCursor = drmmode_cursor_init(pScreen);
 
 		if (!pMsm->HWCursor)
 			ERROR_MSG("Hardware cursor initialization failed");
@@ -433,9 +455,13 @@ MSMScreenInit(SCREEN_INIT_ARGS_DECL)
 		return FALSE;
 	}
 
-	if (!fbmode_screen_init(pScreen)) {
-		ERROR_MSG("fbmode_screen_init failed");
-		return FALSE;
+	if (pMsm->NoKMS) {
+		if (!fbmode_screen_init(pScreen)) {
+			ERROR_MSG("fbmode_screen_init failed");
+			return FALSE;
+		}
+	} else {
+		drmmode_screen_init(pScreen);
 	}
 
 	return TRUE;
@@ -459,6 +485,12 @@ MSMEnterVT(VT_FUNC_ARGS_DECL)
 
 	DEBUG_MSG("enter-vt");
 
+	if (!pMsm->NoKMS) {
+		int ret = drmSetMaster(pMsm->drmFD);
+		if (ret)
+			ERROR_MSG("Unable to get master: %s", strerror(errno));
+	}
+
 	/* Set up the mode - this doesn't actually touch the hardware,
 	 * but it makes RandR all happy */
 
@@ -477,6 +509,12 @@ MSMLeaveVT(VT_FUNC_ARGS_DECL)
 	MSMPtr pMsm = MSMPTR(pScrn);
 
 	DEBUG_MSG("leave-vt");
+
+	if (!pMsm->NoKMS) {
+		int ret = drmDropMaster(pMsm->drmFD);
+		if (ret)
+			ERROR_MSG("Unable to drop master: %s", strerror(errno));
+	}
 }
 
 /* ------------------------------------------------------------ */
@@ -550,7 +588,10 @@ MSMProbe(DriverPtr drv, int flags)
 		} else {
 			int entity, fd;
 
-			fd = drmOpen("kgsl", NULL);
+			fd = drmOpen("msm", NULL);
+
+			if (fd < 0)
+				fd = drmOpen("kgsl", NULL);
 
 			if (fd < 0)
 				continue;

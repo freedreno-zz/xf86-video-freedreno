@@ -192,7 +192,7 @@ MSMDRI2ScreenInit(ScreenPtr pScreen)
 	DRI2InfoRec info = {
 			.version			= 3,
 			.fd 				= pMsm->drmFD,
-			.driverName			= "kgsl",
+			.driverName			= pMsm->NoKMS ? "kgsl" : "msm",
 			.deviceName			= pMsm->deviceName,
 			.CreateBuffer		= MSMDRI2CreateBuffer,
 			.DestroyBuffer		= MSMDRI2DestroyBuffer,

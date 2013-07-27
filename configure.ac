@@ -60,7 +60,7 @@ XORG_DRIVER_CHECK_EXT(RENDER, renderproto)
 #XORG_DRIVER_CHECK_EXT(XV, videoproto)
 
 # Checks for pkg-config packages
-PKG_CHECK_MODULES(XORG, [libdrm libdrm_freedreno xorg-server xproto $REQUIRED_MODULES])
+PKG_CHECK_MODULES(XORG, [libdrm libdrm_freedreno xorg-server xproto libudev $REQUIRED_MODULES])
 sdkdir=$(pkg-config --variable=sdkdir xorg-server)
 PKG_CHECK_MODULES(XEXT, [xextproto >= 7.0.99.1],
 HAVE_XEXTPROTO_71="yes"; AC_DEFINE(HAVE_XEXTPROTO_71, 1, [xextproto 7.1 available]),
