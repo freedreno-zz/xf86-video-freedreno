@@ -1330,9 +1330,9 @@ drmmode_flip_handler(int fd, unsigned int frame, unsigned int tv_sec,
 	drmModeRmFB(drmmode->fd, flipdata->old_fb_id);
 
 	if (flipdata->event_data) {
-//TODO swap support in DDX
-//		MSMDRI2SwapComplete(flipdata->event_data, flipdata->fe_frame,
-//				flipdata->fe_tv_sec, flipdata->fe_tv_usec);
+		/* Deliver cached msc, ust from reference crtc to flip event handler */
+		MSMDRI2SwapComplete(flipdata->event_data, flipdata->fe_frame,
+				flipdata->fe_tv_sec, flipdata->fe_tv_usec);
 	}
 
 	free(flipdata);

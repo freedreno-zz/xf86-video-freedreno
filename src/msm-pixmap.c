@@ -71,3 +71,11 @@ msm_get_pixmap_name(PixmapPtr pix, unsigned int *name, unsigned int *pitch)
 	}
 	return ret;
 }
+
+void
+msm_pixmap_exchange(PixmapPtr a, PixmapPtr b)
+{
+	struct msm_pixmap_priv *apriv = exaGetPixmapDriverPrivate(a);
+	struct msm_pixmap_priv *bpriv = exaGetPixmapDriverPrivate(b);
+	exchange(apriv->bo, bpriv->bo);
+}
