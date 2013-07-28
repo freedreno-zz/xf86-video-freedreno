@@ -73,6 +73,8 @@ typedef struct _MSMRec
 
 	int drmFD;
 
+	int pending_page_flips;
+
 	struct fd_device *dev;
 	char *deviceName;
 
@@ -113,6 +115,10 @@ struct msm_pixmap_priv {
 
 Bool MSMSetupAccel(ScreenPtr pScreen);
 Bool MSMSetupExa(ScreenPtr, Bool softexa);
+
+typedef struct _MSMDRISwapCmd MSMDRISwapCmd;
+void MSMDRI2SwapComplete(MSMDRISwapCmd *cmd, uint32_t frame,
+		uint32_t tv_sec, uint32_t tv_usec);
 Bool MSMDRI2ScreenInit(ScreenPtr pScreen);
 void MSMDRI2CloseScreen(ScreenPtr pScreen);
 
@@ -134,9 +140,16 @@ void fbmode_screen_fini(ScreenPtr pScreen);
 
 #define xFixedtoDouble(_f) (double) ((_f)/(double) xFixed1)
 
+#define exchange(a, b) {     \
+		typeof(a) tmp = a;   \
+		a = b;               \
+		b = tmp;             \
+	}
+
 struct fd_bo *msm_get_pixmap_bo(PixmapPtr);
 void msm_set_pixmap_bo(PixmapPtr pix, struct fd_bo *bo);
 int msm_get_pixmap_name(PixmapPtr pix, unsigned int *name, unsigned int *pitch);
+void msm_pixmap_exchange(PixmapPtr a, PixmapPtr b);
 
 /**
  * This controls whether debug statements (and function "trace" enter/exit)
