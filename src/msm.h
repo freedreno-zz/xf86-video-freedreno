@@ -33,6 +33,7 @@
 #include "xf86.h"
 #include "damage.h"
 #include "exa.h"
+#include <compat-api.h>
 
 #include <freedreno_drmif.h>
 #include <freedreno_ringbuffer.h>
