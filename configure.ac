@@ -22,9 +22,9 @@
 
 AC_PREREQ(2.57)
 AC_INIT([xf86-video-freedreno],
-        0.0.1,
-        [],
-        xf86-video-freedreno)
+        [1.0.0],
+        [https://bugs.freedesktop.org/enter_bug.cgi],
+        [xf86-video-freedreno])
 
 AC_CONFIG_SRCDIR([Makefile.am])
 AM_CONFIG_HEADER([config.h])
