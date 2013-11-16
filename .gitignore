@@ -1,10 +1,15 @@
 .deps
 .libs
 Makefile
+INSTALL
+ChangeLog
 *.la
 *.lo
 *.o
 *~
+*.pc
+*.tar.gz
+*.tar.bz2
 aclocal.m4
 autom4te.cache
 compile
