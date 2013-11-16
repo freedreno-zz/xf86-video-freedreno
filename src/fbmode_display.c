@@ -81,6 +81,8 @@ typedef struct {
 #define MSM_CURSOR_WIDTH 64
 #define MSM_CURSOR_HEIGHT 64
 
+static void MSMGetDefaultMode(fbmode_ptr fbmode);
+
 
 static fbmode_ptr
 fbmode_from_scrn(ScrnInfoPtr scrn)
@@ -433,6 +435,7 @@ static DisplayModePtr
 MSMOutputGetModes(xf86OutputPtr output)
 {
 	fbmode_ptr fbmode = output->driver_private;
+	MSMGetDefaultMode(fbmode);
 	return xf86DuplicateMode(&fbmode->default_mode);
 }
 
