@@ -537,14 +537,9 @@ static Bool
 MSMProbe(DriverPtr drv, int flags)
 {
 	GDevPtr *sections;
-	int nsects;
-	const char *dev;
-
+	int i, nsects;
 	Bool foundScreen = FALSE;
-
 	ScrnInfoPtr pScrn = NULL;
-
-	int fd, i;
 
 	/* For now, just return false during a probe */
 
@@ -557,66 +552,83 @@ MSMProbe(DriverPtr drv, int flags)
 
 	nsects = xf86MatchDevice(MSM_NAME, &sections);
 	if (nsects <= 0) {
-		ErrorF("nsects=%d\n", nsects);
-		return FALSE;
+		xf86Msg(X_INFO, "Did not find any matching device "
+				"section in configuration file\n");
+		if (flags & PROBE_DETECT) {
+			/* if we are probing, assume one and lets see if we can
+			 * open the device to confirm it is there:
+			 */
+			nsects = 1;
+		} else {
+			return FALSE;
+		}
 	}
 
-	/* We know that we will only have at most 4 possible outputs */
+	for (i = 0; i < nsects; i++) {
+		int entity, drmfd;
 
-	for (i = 0; i < (nsects > 4 ? 4 : nsects); i++) {
+		drmfd = drmOpen("msm", NULL);
 
-		dev = xf86FindOptionValue(sections[i]->options, "fb");
+		if (drmfd < 0) {
+			const char *dev;
+			int fbdevfd;
 
-		xf86Msg(X_WARNING, "Section %d - looking for %s\n", i, dev);
+			xf86Msg(X_INFO, "No msm DRM/KMS, fallback to fbdev/kgsl\n");
 
-		/* FIXME:  There should be some discussion about how we
-		 * refer to devices - blindly matching to /dev/fbX files
-		 * seems like it could backfire on us.   For now, force
-		 * the user to set the backing FB in the xorg.conf */
+			/* ok, then legacy.. we need an fb too */
+			dev = xf86FindOptionValue(sections[i]->options, "fb");
 
-		if (dev == NULL) {
-			xf86Msg(X_WARNING, "no device specified in section %d\n", i);
-			continue;
-		}
+			xf86Msg(X_INFO, "Section %d - looking for %s\n", i, dev);
 
-		fd = open(dev, O_RDWR, 0);
-
-		if (fd <= 0) {
-			xf86Msg(X_WARNING, "Could not open '%s': %s\n",
-					dev, strerror(errno));
-			continue;
-		} else {
-			int entity, fd;
-
-			fd = drmOpen("msm", NULL);
-
-			if (fd < 0)
-				fd = drmOpen("kgsl", NULL);
-
-			if (fd < 0)
+			if (dev == NULL) {
+				xf86Msg(X_WARNING, "no device specified in section %d\n", i);
 				continue;
+			}
 
-			close(fd);
+			fbdevfd = open(dev, O_RDWR, 0);
+			if (fbdevfd < 0) {
+				xf86Msg(X_WARNING, "Could not open fbdev '%s': %s\n",
+						dev, strerror(errno));
+				continue;
+			}
+			close(fbdevfd);
 
-			foundScreen = TRUE;
-
-			entity = xf86ClaimFbSlot(drv, 0, sections[i], TRUE);
-			pScrn = xf86ConfigFbEntity(NULL, 0, entity, NULL, NULL, NULL, NULL);
-
-			xf86Msg(X_WARNING, "Add screen %p\n", pScrn);
-
-			/* Set up the hooks for the screen */
-
-			pScrn->driverVersion = MSM_VERSION_CURRENT;
-			pScrn->driverName = MSM_NAME;
-			pScrn->name = MSM_NAME;
-			pScrn->Probe = MSMProbe;
-			pScrn->PreInit = MSMPreInit;
-			pScrn->ScreenInit = MSMScreenInit;
-			pScrn->SwitchMode = MSMSwitchMode;
-			pScrn->EnterVT = MSMEnterVT;
-			pScrn->LeaveVT = MSMLeaveVT;
+			drmfd = drmOpen("kgsl", NULL);
 		}
+
+		if (drmfd < 0) {
+			xf86Msg(X_WARNING, "Could not open drm: %s\n",
+					strerror(errno));
+			continue;
+		}
+
+		close(drmfd);
+
+		foundScreen = TRUE;
+
+		if (flags & PROBE_DETECT) {
+			/* just add the device.. we aren't a PCI device, so
+			 * call xf86AddBusDeviceToConfigure() directly
+			 */
+			xf86AddBusDeviceToConfigure(MSM_DRIVER_NAME,
+					BUS_NONE, NULL, i);
+			continue;
+		}
+
+		entity = xf86ClaimFbSlot(drv, 0, sections[i], TRUE);
+		pScrn = xf86ConfigFbEntity(NULL, 0, entity, NULL, NULL, NULL, NULL);
+
+		/* Set up the hooks for the screen */
+
+		pScrn->driverVersion = MSM_VERSION_CURRENT;
+		pScrn->driverName = MSM_NAME;
+		pScrn->name = MSM_NAME;
+		pScrn->Probe = MSMProbe;
+		pScrn->PreInit = MSMPreInit;
+		pScrn->ScreenInit = MSMScreenInit;
+		pScrn->SwitchMode = MSMSwitchMode;
+		pScrn->EnterVT = MSMEnterVT;
+		pScrn->LeaveVT = MSMLeaveVT;
 	}
 
 	free(sections);
