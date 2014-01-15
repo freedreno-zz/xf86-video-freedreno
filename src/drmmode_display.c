@@ -34,7 +34,6 @@
 #include "xorgVersion.h"
 
 #include "msm.h"
-#include "drm/drm_mode.h"
 #include "xf86Crtc.h"
 #include "xf86drmMode.h"
 #include "xf86DDC.h"
