@@ -1,5 +1,5 @@
 /* msm-output.c
-k *
+ *
  * Copyright (c) 2009, Code Aurora Forum. All rights reserved.
  * Copyright © 2012 Rob Clark <robclark@freedesktop.org>
  *
