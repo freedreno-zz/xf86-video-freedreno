@@ -100,7 +100,7 @@ MSMBlockHandler (BLOCKHANDLER_ARGS_DECL)
 	pScreen->BlockHandler = MSMBlockHandler;
 
 	if (pScrn->vtSema)
-		FIRE_RING(pMsm);
+		MSMFlushAccel(pScreen);
 }
 
 /*

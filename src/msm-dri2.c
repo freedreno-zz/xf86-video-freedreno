@@ -304,6 +304,18 @@ MSMDRI2CopyRegion(DrawablePtr pDraw, RegionPtr pRegion,
 	DEBUG_MSG("pDraw=%p, pDstBuffer=%p (%p), pSrcBuffer=%p (%p)",
 			pDraw, pDstBuffer, pSrcDraw, pSrcBuffer, pDstDraw);
 
+	/* hack.. since we don't have proper fencing / kernel synchronization
+	 * we can get in a scenario where we get many frames ahead of the gpu,
+	 * with queued up cmd sequence like: render -> blit -> render -> blit ..
+	 * This hack makes sure the previous blit has completed.
+	 */
+	{
+	MSMPtr pMsm = MSMPTR(pScrn);
+	MSMDRI2BufferPtr buf = MSMBUF(pDstBuffer);
+	pMsm->pExa->PrepareAccess(buf->pPixmap, 0);
+	pMsm->pExa->FinishAccess(buf->pPixmap, 0);
+	}
+
 	pGC = GetScratchGC(pDstDraw->depth, pScreen);
 	if (!pGC) {
 		return;
@@ -326,6 +338,8 @@ MSMDRI2CopyRegion(DrawablePtr pDraw, RegionPtr pRegion,
 			0, 0, pDraw->width, pDraw->height, 0, 0);
 
 	FreeScratchGC(pGC);
+
+	MSMFlushAccel(pScreen);
 }
 
 /**

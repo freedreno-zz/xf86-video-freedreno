@@ -38,6 +38,9 @@
 #include <freedreno_drmif.h>
 #include <freedreno_ringbuffer.h>
 
+struct xa_tracker;
+struct xa_surface;
+
 #define CREATE_PIXMAP_USAGE_DRI2 0x10000000
 
 #ifndef ARRAY_SIZE
@@ -93,16 +96,22 @@ typedef struct _MSMRec
 	} ring;
 	struct fd_pipe *pipe;
 
+	/* for XA state tracker EXA: */
+	struct xa_tracker *xa;
+
 	/* EXA state: */
 	struct exa_state *exa;
 
 	struct fd_bo *scanout;
+	struct xa_surface *scanout_surf;
 
 	OptionInfoPtr     options;
 } MSMRec, *MSMPtr;
 
 struct msm_pixmap_priv {
-	struct fd_bo *bo;
+	struct fd_bo *bo;        /* for traditional 2d EXA */
+	struct xa_surface *surf; /* for XA state tracker EXA */
+	void *ptr;               /* for unacceleratable pixmaps */
 };
 
 /* Macro to get the private record from the ScreenInfo structure */
@@ -115,7 +124,10 @@ struct msm_pixmap_priv {
 		MSMPTR_FROM_SCREEN((_x)->drawable.pScreen)
 
 Bool MSMSetupAccel(ScreenPtr pScreen);
+void MSMFlushAccel(ScreenPtr pScreen);
 Bool MSMSetupExa(ScreenPtr, Bool softexa);
+Bool MSMSetupExaXA(ScreenPtr);
+void MSMFlushXA(MSMPtr pMsm);
 
 typedef struct _MSMDRISwapCmd MSMDRISwapCmd;
 void MSMDRI2SwapComplete(MSMDRISwapCmd *cmd, uint32_t frame,
@@ -148,6 +160,9 @@ void fbmode_screen_fini(ScreenPtr pScreen);
 	}
 
 struct fd_bo *msm_get_pixmap_bo(PixmapPtr);
+#ifdef HAVE_XA
+struct xa_surface *msm_get_pixmap_surf(PixmapPtr pix);
+#endif
 void msm_set_pixmap_bo(PixmapPtr pix, struct fd_bo *bo);
 int msm_get_pixmap_name(PixmapPtr pix, unsigned int *name, unsigned int *pitch);
 void msm_pixmap_exchange(PixmapPtr a, PixmapPtr b);

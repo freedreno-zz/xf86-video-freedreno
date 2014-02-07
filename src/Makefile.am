@@ -1,10 +1,14 @@
-freedreno_drv_la_LIBADD =
-
-AM_CFLAGS = @XORG_CFLAGS@ -Wall -Werror -I$(top_srcdir)/system-includes/ -I$(top_builddir)/
+AM_CFLAGS = \
+	@XORG_CFLAGS@ \
+	@XATRACKER_CFLAGS@ \
+	-Wall \
+	-Werror \
+	-I$(top_srcdir)/system-includes/ \
+	-I$(top_builddir)/
 
 freedreno_drv_la_LTLIBRARIES = freedreno_drv.la
 freedreno_drv_la_LDFLAGS = -module -avoid-version
-freedreno_drv_la_LIBADD = @XORG_LIBS@
+freedreno_drv_la_LIBADD = @XORG_LIBS@ @XATRACKER_LIBS@
 freedreno_drv_ladir = @moduledir@/drivers
 
 # Additional includes needed for msm fbdev + kgsl backend:
@@ -24,6 +28,11 @@ freedreno_drv_la_SOURCES = \
 	msm-exa.c \
 	msm-dri2.c \
 	msm-pixmap.c
+
+if BUILD_XA
+freedreno_drv_la_SOURCES += \
+	msm-exa-xa.c
+endif
 
 EXTRA_DIST = \
 	msm.h

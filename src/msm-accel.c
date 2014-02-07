@@ -33,6 +33,10 @@
 #include "msm.h"
 #include "msm-accel.h"
 
+#ifdef HAVE_XA
+#  include <xa_tracker.h>
+#endif
+
 /* matching buffer info:
                 len:            00001000
                 gpuaddr:        66142000
@@ -192,8 +196,34 @@ MSMSetupAccel(ScreenPtr pScreen)
 	struct fd_ringbuffer *ring;
 
 	pMsm->pipe = fd_pipe_new(pMsm->dev, FD_PIPE_2D);
+#ifdef HAVE_XA
 	if (!pMsm->pipe) {
-		ERROR_MSG("fail, no 2D pipe..!");
+		struct fd_pipe *p;
+
+		INFO_MSG("no 2D, trying 3D/XA");
+
+		p = fd_pipe_new(pMsm->dev, FD_PIPE_3D);
+		if (!p) {
+			ERROR_MSG("no 3D pipe");
+			goto no_xa;
+		}
+
+		pMsm->xa = xa_tracker_create(pMsm->drmFD);
+		if (!pMsm->xa) {
+			ERROR_MSG("could not setup XA");
+			goto no_xa;
+		}
+
+		pMsm->pipe = p;
+
+		INFO_MSG("using 3D/XA");
+
+		goto out;
+	}
+no_xa:
+#endif
+	if (!pMsm->pipe) {
+		INFO_MSG("no 2D pipe, falling back to software!");
 		if (pMsm->NoKMS) {
 			/* fbdev mode is lame.. we need a pipe, any pipe, to get a
 			 * bo for the scanout/fbdev buffer.  So just do this instead
@@ -229,9 +259,28 @@ MSMSetupAccel(ScreenPtr pScreen)
 	END_RING  (pMsm);
 
 out:
+#ifdef HAVE_XA
+	if (pMsm->xa)
+		ret = MSMSetupExaXA(pScreen);
+	else
+#endif
 	ret = MSMSetupExa(pScreen, softexa);
 	if (ret) {
 		pMsm->dri = MSMDRI2ScreenInit(pScreen);
 	}
 	return ret;
+}
+
+void
+MSMFlushAccel(ScreenPtr pScreen)
+{
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
+	MSMPtr pMsm = MSMPTR(pScrn);
+	if (pMsm->xa) {
+#ifdef HAVE_XA
+		MSMFlushXA(pMsm);
+#endif
+	} else {
+		FIRE_RING(pMsm);
+	}
 }

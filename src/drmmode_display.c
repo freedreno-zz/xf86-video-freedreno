@@ -1015,8 +1015,8 @@ drmmode_xf86crtc_resize(ScrnInfoPtr pScrn, int width, int height)
 	 */
 	ppix = screen->GetScreenPixmap(screen);
 	if (ppix) {
-		msm_set_pixmap_bo(ppix, pMsm->scanout);
 		screen->ModifyPixmapHeader(ppix, width, height, -1, -1, pitch, ptr);
+		msm_set_pixmap_bo(ppix, pMsm->scanout);
 #if GET_ABI_MAJOR(ABI_VIDEODRV_VERSION) < 9
 		pScrn->pixmapPrivate.ptr = ppix->devPrivate.ptr;
 #endif
