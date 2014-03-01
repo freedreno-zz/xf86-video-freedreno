@@ -197,7 +197,7 @@ MSMSetupAccel(ScreenPtr pScreen)
 
 	pMsm->pipe = fd_pipe_new(pMsm->dev, FD_PIPE_2D);
 #ifdef HAVE_XA
-	if (!pMsm->pipe) {
+	if (!pMsm->pipe && !pMsm->NoAccel) {
 		struct fd_pipe *p;
 
 		INFO_MSG("no 2D, trying 3D/XA");
@@ -233,6 +233,11 @@ no_xa:
 		}
 		softexa = TRUE;
 		goto out;
+	}
+
+	if (pMsm->NoAccel) {
+		INFO_MSG("Acceleration disabled in config file");
+		softexa = TRUE;
 	}
 
 	pMsm->ring.context_bos[0] = fd_bo_new(pMsm->dev, 0x1000,

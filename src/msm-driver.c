@@ -243,6 +243,9 @@ MSMPreInit(ScrnInfoPtr pScrn, int flags)
 	/* Determine if the user wants debug messages turned on: */
 	msmDebug = xf86ReturnOptValBool(pMsm->options, OPTION_DEBUG, FALSE);
 
+	/* NoAccel - default FALSE */
+	pMsm->NoAccel = xf86ReturnOptValBool(pMsm->options, OPTION_NOACCEL, FALSE);
+
 	/* SWCursor - default FALSE */
 	pMsm->HWCursor = !xf86ReturnOptValBool(pMsm->options, OPTION_SWCURSOR, FALSE);
 
