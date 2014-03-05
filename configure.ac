@@ -89,4 +89,5 @@ XORG_RELEASE_VERSION
 AC_OUTPUT([
 	Makefile
 	src/Makefile
+	man/Makefile
 ])
