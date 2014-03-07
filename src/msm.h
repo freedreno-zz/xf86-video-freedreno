@@ -54,6 +54,7 @@ typedef enum
 	OPTION_FB,
 	OPTION_NOACCEL,
 	OPTION_SWCURSOR,
+	OPTION_SWREFRESHER,
 	OPTION_VSYNC,
 	OPTION_DEBUG,
 } MSMOpts;
@@ -74,6 +75,7 @@ typedef struct _MSMRec
 	Bool NoKMS;
 	Bool NoAccel;
 	Bool HWCursor;
+	Bool SWRefresher;
 
 	int drmFD;
 

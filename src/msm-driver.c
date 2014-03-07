@@ -77,6 +77,7 @@ static const OptionInfoRec MSMOptions[] = {
 		{OPTION_FB, "fb", OPTV_STRING, {0}, FALSE},
 		{OPTION_NOACCEL, "NoAccel", OPTV_BOOLEAN, {0}, FALSE},
 		{OPTION_SWCURSOR, "SWCursor", OPTV_BOOLEAN, {0}, FALSE},
+		{OPTION_SWREFRESHER, "SWRefresher", OPTV_BOOLEAN, {0}, FALSE},
 		{OPTION_VSYNC, "DefaultVsync", OPTV_INTEGER, {0}, FALSE},
 		{OPTION_DEBUG, "Debug", OPTV_BOOLEAN, {0}, FALSE},
 		{-1, NULL, OPTV_NONE, {0}, FALSE}
@@ -248,6 +249,9 @@ MSMPreInit(ScrnInfoPtr pScrn, int flags)
 
 	/* SWCursor - default FALSE */
 	pMsm->HWCursor = !xf86ReturnOptValBool(pMsm->options, OPTION_SWCURSOR, FALSE);
+
+	/* SWRefresher - default TRUE */
+	pMsm->SWRefresher = xf86ReturnOptValBool(pMsm->options, OPTION_SWREFRESHER, TRUE);
 
 	xf86PrintModes(pScrn);
 

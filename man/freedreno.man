@@ -42,6 +42,11 @@ Disable HW mouse cursor.
 .IP
 Default: Disabled
 .TP
+.BI "Option \*qSWRefresher\*q \*q" boolean \*q
+Enable SW Refresher.  Only applicable for fbdev/kgsl, unused for drm/msm.
+.IP
+Default: Enabled
+.TP
 .BI "Option \*qfb\*q \*q" string \*q
 Path to fbdev device file.  Required to use fbdev/kgsl, unused for drm/msm.
 .IP

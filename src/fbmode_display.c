@@ -572,6 +572,8 @@ static const xf86CrtcConfigFuncsRec MSMCrtcConfigFuncs = {
 
 Bool fbmode_pre_init(ScrnInfoPtr pScrn)
 {
+	MSMPtr pMsm = MSMPTR(pScrn);
+
 	fbmode_ptr fbmode;
 	EntityInfoPtr pEnt;
 	const char *dev;
@@ -596,7 +598,9 @@ Bool fbmode_pre_init(ScrnInfoPtr pScrn)
 	ioctl(fbmode->fd, FBIOBLANK, FB_BLANK_UNBLANK);
 
 	/* Make sure the software refresher is on */
-	ioctl(fbmode->fd, MSMFB_RESUME_SW_REFRESHER, 0);
+	if(pMsm->SWRefresher){
+		ioctl(fbmode->fd, MSMFB_RESUME_SW_REFRESHER, 0);
+	}
 
 	/* Get the fixed info (par) structure */
 
