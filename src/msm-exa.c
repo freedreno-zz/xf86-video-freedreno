@@ -42,28 +42,12 @@
 
 #define xFixedtoDouble(_f) (double) ((_f)/(double) xFixed1)
 
-#define ENABLE_EXA_TRACE                0
-#define ENABLE_SW_FALLBACK_REPORTS        0
-
 #define MSM_LOCALS(pDraw) \
     ScrnInfoPtr pScrn = xf86ScreenToScrn(((DrawablePtr)(pDraw))->pScreen); \
     MSMPtr pMsm = MSMPTR(pScrn);                                    \
     struct fd_ringbuffer *ring = NULL; (void)ring;                  \
     struct exa_state *exa = pMsm->exa; (void)exa
 
-#define TRACE_EXA(fmt, ...) do {                                    \
-        if (ENABLE_EXA_TRACE)                                       \
-            ErrorF("EXA: " fmt"\n", ##__VA_ARGS__);                 \
-    } while (0)
-
-#define EXA_FAIL_IF(cond) do {                                      \
-        if (cond) {                                                 \
-            if (ENABLE_SW_FALLBACK_REPORTS) {                       \
-                ErrorF("FALLBACK: " #cond"\n");                     \
-            }                                                       \
-            return FALSE;                                           \
-        }                                                           \
-    } while (0)
 
 struct exa_state {
 	/* solid state: */

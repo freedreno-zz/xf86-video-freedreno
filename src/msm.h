@@ -105,7 +105,6 @@ typedef struct _MSMRec
 	struct exa_state *exa;
 
 	struct fd_bo *scanout;
-	struct xa_surface *scanout_surf;
 
 	OptionInfoPtr     options;
 } MSMRec, *MSMPtr;
