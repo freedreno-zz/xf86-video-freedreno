@@ -224,6 +224,101 @@ drmmode_crtc_dpms(xf86CrtcPtr drmmode_crtc, int mode)
 
 }
 
+static void
+drmmode_fbcon_copy(ScreenPtr pScreen)
+{
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
+	MSMPtr pMsm = MSMPTR(pScrn);
+	ExaDriverPtr exa = pMsm->pExa;
+	drmmode_ptr drmmode = NULL;
+	xf86CrtcConfigPtr config = XF86_CRTC_CONFIG_PTR(pScrn);
+	drmModeFBPtr fb;
+	unsigned w = pScrn->virtualX, h = pScrn->virtualY, bpp = pScrn->bitsPerPixel;
+	uint32_t fbcon_id = 0;
+	struct fd_bo *fbcon_bo;
+	PixmapPtr fbcon_pix, scanout_pix;
+	void *ptr;
+	int i;
+
+	for (i = 0; i < config->num_crtc; i++) {
+		drmmode_crtc_private_ptr crtc = config->crtc[0]->driver_private;
+		if (crtc->mode_crtc->buffer_id) {
+			fbcon_id = crtc->mode_crtc->buffer_id;
+			drmmode = crtc->drmmode;
+		}
+	}
+
+	if (!fbcon_id)
+		goto fallback;
+
+	fb = drmModeGetFB(drmmode->fd, fbcon_id);
+	if (!fb) {
+		xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
+				"Failed to retrieve fbcon fb: id %d\n", fbcon_id);
+		goto fallback;
+	}
+
+	if (fb->depth != pScrn->depth || fb->width != w || fb->height != h) {
+		drmModeFreeFB(fb);
+		goto fallback;
+	}
+
+	fbcon_bo = fd_bo_from_handle(pMsm->dev, fb->handle,
+			fb->height * fb->pitch);
+	if (!fbcon_bo) {
+		xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
+				"Failed to retrieve fbcon buffer: handle=0x%08x\n",
+				fb->handle);
+		drmModeFreeFB(fb);
+		goto fallback;
+	}
+
+	fbcon_pix = drmmode_pixmap_wrap(pScreen, fb->width, fb->height,
+			fb->depth, fb->bpp, fb->pitch, fbcon_bo, NULL);
+	drmModeFreeFB(fb);
+	if (!fbcon_pix) {
+		xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
+				"Failed to create pixmap for fbcon contents\n");
+		goto fallback;
+	}
+
+	scanout_pix = drmmode_pixmap_wrap(pScreen, w, h, pScrn->depth,
+			bpp, pScrn->displayWidth * bpp / 8, pMsm->scanout, NULL);
+	if (!scanout_pix) {
+		xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
+				"Failed to init scanout pixmap for fbcon mirror\n");
+		pScreen->DestroyPixmap(fbcon_pix);
+		goto fallback;
+	}
+
+	exa->PrepareCopy(fbcon_pix, scanout_pix, 0, 0, GXcopy, ~0);
+	exa->Copy(scanout_pix, 0, 0, 0, 0, w, h);
+	exa->DoneCopy(scanout_pix);
+
+	/* shouldn't really be needed, the PrepareAccess below will do this,
+	 * but for good measure:
+	 */
+	MSMFlushAccel(pScreen);
+
+	/* wait for completion before continuing, avoids seeing a momentary
+	 * flash of "corruption" on occasion
+	 */
+	exa->PrepareAccess(scanout_pix, EXA_PREPARE_SRC);
+	exa->FinishAccess(scanout_pix, EXA_PREPARE_SRC);
+
+	pScreen->DestroyPixmap(scanout_pix);
+	pScreen->DestroyPixmap(fbcon_pix);
+	pScreen->canDoBGNoneRoot = TRUE;
+
+	return;
+
+fallback:
+	ptr = fd_bo_map(pMsm->scanout);
+	if (!ptr)
+		return;
+	memset(ptr, 0x00, fd_bo_size(pMsm->scanout));
+}
+
 static Bool
 drmmode_set_mode_major(xf86CrtcPtr crtc, DisplayModePtr mode,
 		Rotation rotation, int x, int y)
@@ -1009,6 +1104,12 @@ drmmode_xf86crtc_resize(ScrnInfoPtr pScrn, int width, int height)
 			goto fail;
 	}
 
+	if (!old_bo) {
+		drmmode_fbcon_copy(screen);
+	} else {
+		memset(ptr, 0x00, fd_bo_size(pMsm->scanout));
+	}
+
 	/* NOTE do everything that could fail before this point,
 	 * otherwise you could end up w/ screen pixmap pointing
 	 * at the wrong scanout bo
@@ -1021,8 +1122,6 @@ drmmode_xf86crtc_resize(ScrnInfoPtr pScrn, int width, int height)
 		pScrn->pixmapPrivate.ptr = ppix->devPrivate.ptr;
 #endif
 	}
-
-	memset(ptr, 0x00, fd_bo_size(pMsm->scanout));
 
 	for (i = 0; i < xf86_config->num_crtc; i++) {
 		xf86CrtcPtr crtc = xf86_config->crtc[i];
