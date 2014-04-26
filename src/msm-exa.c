@@ -960,7 +960,34 @@ MSMSetupExa(ScreenPtr pScreen, Bool softexa)
 {
 	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	MSMPtr pMsm = MSMPTR(pScrn);
+	struct fd_ringbuffer *ring;
 	ExaDriverPtr pExa;
+
+	if (!softexa) {
+		pMsm->ring.context_bos[0] = fd_bo_new(pMsm->dev, 0x1000,
+				DRM_FREEDRENO_GEM_TYPE_KMEM);
+		pMsm->ring.context_bos[1] = fd_bo_new(pMsm->dev, 0x9000,
+				DRM_FREEDRENO_GEM_TYPE_KMEM);
+		pMsm->ring.context_bos[2] = fd_bo_new(pMsm->dev, 0x81000,
+				DRM_FREEDRENO_GEM_TYPE_KMEM);
+
+		/* Set up ringbuffers: */
+		next_ring(pMsm);
+		ring = pMsm->ring.ring;
+		ring_pre(ring);
+
+		/* Set up hardware: */
+		BEGIN_RING(pMsm, 8);
+		OUT_RING  (ring, REGM(VGV1_DIRTYBASE, 3));
+		OUT_RELOC (ring, pMsm->ring.context_bos[0], TRUE); /* VGV1_DIRTYBASE */
+		OUT_RELOC (ring, pMsm->ring.context_bos[1], TRUE); /* VGV1_CBASE1 */
+		OUT_RELOC (ring, pMsm->ring.context_bos[2], TRUE); /* VGV1_UBASE2 */
+		OUT_RING  (ring, 0x11000000);
+		OUT_RING  (ring, 0x10fff000);
+		OUT_RING  (ring, 0x10ffffff);
+		OUT_RING  (ring, 0x0d000404);
+		END_RING  (pMsm);
+	}
 
 	/* Set up EXA */
 	xf86LoadSubModule(pScrn, "exa");
