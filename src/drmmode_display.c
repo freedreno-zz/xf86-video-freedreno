@@ -1109,7 +1109,7 @@ drmmode_xf86crtc_resize(ScrnInfoPtr pScrn, int width, int height)
 			goto fail;
 	}
 
-	if (!old_bo) {
+	if (!old_fb_id) {
 		drmmode_fbcon_copy(screen);
 	} else {
 		memset(ptr, 0x00, fd_bo_size(pMsm->scanout));
