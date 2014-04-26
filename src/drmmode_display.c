@@ -1079,7 +1079,7 @@ drmmode_xf86crtc_resize(ScrnInfoPtr pScrn, int width, int height)
 
 	if ((pScrn->virtualX == width) &&
 			(pScrn->virtualY == height) &&
-			pMsm->scanout)
+			pMsm->scanout && drmmode->fb_id)
 		return TRUE;
 
 	old_width = pScrn->virtualX;
@@ -1467,11 +1467,28 @@ drmmode_wait_for_event(ScrnInfoPtr pScrn)
 	drmHandleEvent(drmmode->fd, &drmmode->event_context);
 }
 
-void
+Bool
 drmmode_screen_init(ScreenPtr pScreen)
 {
 	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	drmmode_ptr drmmode = drmmode_from_scrn(pScrn);
+	MSMPtr pMsm = MSMPTR(pScrn);
+	int pitch, size;
+
+	/* NOTE: we need an initial scanout buffer, in case no attached
+	 * display:
+	 */
+	pitch = MSMAlignedStride(pScrn->virtualX, pScrn->bitsPerPixel);
+	size = pitch * pScrn->virtualY;
+	DEBUG_MSG("initial scanout buffer: %dx%d@%d (size=%d, pitch=%d)",
+		pScrn->virtualX, pScrn->virtualY, pScrn->bitsPerPixel,
+		size, pitch);
+	pMsm->scanout = fd_bo_new(pMsm->dev, size,
+			DRM_FREEDRENO_GEM_TYPE_KMEM);
+	if (!pMsm->scanout) {
+		ERROR_MSG("Error allocating scanout buffer");
+		return FALSE;
+	}
 
 	drmmode_uevent_init(pScrn);
 
@@ -1484,6 +1501,8 @@ drmmode_screen_init(ScreenPtr pScreen)
 	/* Register a wakeup handler to get informed on DRM events */
 	RegisterBlockAndWakeupHandlers((BlockHandlerProcPtr)NoopDDA,
 			drmmode_wakeup_handler, pScrn);
+
+	return TRUE;
 }
 
 void

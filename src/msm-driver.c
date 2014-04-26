@@ -468,7 +468,10 @@ MSMScreenInit(SCREEN_INIT_ARGS_DECL)
 			return FALSE;
 		}
 	} else {
-		drmmode_screen_init(pScreen);
+		if (!drmmode_screen_init(pScreen)) {
+			ERROR_MSG("drmmode_screen_init failed");
+			return FALSE;
+		}
 	}
 
 	return TRUE;
