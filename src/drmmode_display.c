@@ -291,7 +291,12 @@ drmmode_fbcon_copy(ScreenPtr pScreen)
 		goto fallback;
 	}
 
-	exa->PrepareCopy(fbcon_pix, scanout_pix, 0, 0, GXcopy, ~0);
+	/* we could use CopyArea() and get the normal sw fallbacks, but
+	 * then we need to do things in terms of drawables and regions.
+	 * So meh, we have XA, let's not worry too much about it.
+	 */
+	if (!exa->PrepareCopy(fbcon_pix, scanout_pix, 0, 0, GXcopy, ~0))
+		goto fallback;
 	exa->Copy(scanout_pix, 0, 0, 0, 0, w, h);
 	exa->DoneCopy(scanout_pix);
 
