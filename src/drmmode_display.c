@@ -423,21 +423,38 @@ convert_cursor(CARD32 *dst, CARD32 *src, int dw, int sw)
 	}
 }
 
-static void
-drmmode_load_cursor_argb (xf86CrtcPtr crtc, CARD32 *image)
+static Bool
+load_cursor_argb(xf86CrtcPtr crtc, CARD32 *image)
 {
 	drmmode_crtc_private_ptr drmmode_crtc = crtc->driver_private;
 	struct fd_bo *cursor = drmmode_crtc->cursor;
 	drmmode_ptr drmmode = drmmode_crtc->drmmode;
 	void *ptr = fd_bo_map(cursor);
+	int ret = 0;
 
 	convert_cursor(ptr, image, 64, 64);
 
 	if (drmmode_crtc->cursor_visible) {
-		drmModeSetCursor(drmmode->fd, drmmode_crtc->mode_crtc->crtc_id,
+		ret = drmModeSetCursor(drmmode->fd, drmmode_crtc->mode_crtc->crtc_id,
 				fd_bo_handle(cursor), 64, 64);
 	}
+
+	return ret == 0;
 }
+
+#if XORG_VERSION_CURRENT >= XORG_VERSION_NUMERIC(1,15,99,902,0)
+static Bool
+drmmode_load_cursor_argb(xf86CrtcPtr crtc, CARD32 *image)
+{
+	return load_cursor_argb(crtc, image);
+}
+#else
+static void
+drmmode_load_cursor_argb(xf86CrtcPtr crtc, CARD32 *image)
+{
+	load_cursor_argb(crtc, image);
+}
+#endif
 
 static void
 drmmode_hide_cursor (xf86CrtcPtr crtc)

@@ -315,8 +315,8 @@ MSMCrtcHideCursor(xf86CrtcPtr crtc)
 	_enable_cursor(crtc->driver_private, FALSE);
 }
 
-static void
-MSMCrtcLoadCursorARGB(xf86CrtcPtr crtc, CARD32 * image)
+static Bool
+load_cursor_argb(xf86CrtcPtr crtc, CARD32 * image)
 {
 #ifdef MSMFB_CURSOR
 	fbmode_ptr fbmode = crtc->driver_private;
@@ -333,10 +333,30 @@ MSMCrtcLoadCursorARGB(xf86CrtcPtr crtc, CARD32 * image)
 	/* Per pixel alpha on */
 	cursor.image.fg_color = 0;
 
-	if (ioctl(fbmode->fd, MSMFB_CURSOR, &cursor))
+	if (ioctl(fbmode->fd, MSMFB_CURSOR, &cursor)) {
 		ErrorF("%s: Error calling MSMBF_CURSOR\n", __FUNCTION__);
+		return FALSE;
+	}
+	return TRUE;
+#else
+	return FALSE;
 #endif
 }
+
+#if XORG_VERSION_CURRENT >= XORG_VERSION_NUMERIC(1,15,99,902,0)
+static Bool
+MSMCrtcLoadCursorARGB(xf86CrtcPtr crtc, CARD32 * image)
+{
+	return load_cursor_argb(crtc, image);
+}
+#else
+static void
+MSMCrtcLoadCursorARGB(xf86CrtcPtr crtc, CARD32 * image)
+{
+	load_cursor_argb(crtc, image);
+}
+#endif
+
 
 static const xf86CrtcFuncsRec MSMCrtcFuncs = {
 		.dpms = MSMCrtcDPMS,
