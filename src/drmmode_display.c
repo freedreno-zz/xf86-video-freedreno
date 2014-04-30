@@ -424,7 +424,7 @@ convert_cursor(CARD32 *dst, CARD32 *src, int dw, int sw)
 }
 
 static Bool
-load_cursor_argb(xf86CrtcPtr crtc, CARD32 *image)
+drmmode_load_cursor_argb_check(xf86CrtcPtr crtc, CARD32 *image)
 {
 	drmmode_crtc_private_ptr drmmode_crtc = crtc->driver_private;
 	struct fd_bo *cursor = drmmode_crtc->cursor;
@@ -442,19 +442,11 @@ load_cursor_argb(xf86CrtcPtr crtc, CARD32 *image)
 	return ret == 0;
 }
 
-#if XORG_VERSION_CURRENT >= XORG_VERSION_NUMERIC(1,15,99,902,0)
-static Bool
-drmmode_load_cursor_argb(xf86CrtcPtr crtc, CARD32 *image)
-{
-	return load_cursor_argb(crtc, image);
-}
-#else
 static void
 drmmode_load_cursor_argb(xf86CrtcPtr crtc, CARD32 *image)
 {
-	load_cursor_argb(crtc, image);
+	drmmode_load_cursor_argb_check(crtc, image);
 }
-#endif
 
 static void
 drmmode_hide_cursor (xf86CrtcPtr crtc)
@@ -584,6 +576,9 @@ static const xf86CrtcFuncsRec drmmode_crtc_funcs = {
 		.set_cursor_position = drmmode_set_cursor_position,
 		.show_cursor = drmmode_show_cursor,
 		.hide_cursor = drmmode_hide_cursor,
+#if XORG_VERSION_CURRENT >= XORG_VERSION_NUMERIC(1,15,99,902,0)
+		.load_cursor_argb_check = drmmode_load_cursor_argb_check,
+#endif
 		.load_cursor_argb = drmmode_load_cursor_argb,
 		.shadow_create = drmmode_crtc_shadow_create,
 		.shadow_allocate = drmmode_crtc_shadow_allocate,
