@@ -316,7 +316,7 @@ MSMCrtcHideCursor(xf86CrtcPtr crtc)
 }
 
 static Bool
-load_cursor_argb(xf86CrtcPtr crtc, CARD32 * image)
+MSMCrtcLoadCursorARGBCheck(xf86CrtcPtr crtc, CARD32 * image)
 {
 #ifdef MSMFB_CURSOR
 	fbmode_ptr fbmode = crtc->driver_private;
@@ -343,19 +343,11 @@ load_cursor_argb(xf86CrtcPtr crtc, CARD32 * image)
 #endif
 }
 
-#if XORG_VERSION_CURRENT >= XORG_VERSION_NUMERIC(1,15,99,902,0)
-static Bool
-MSMCrtcLoadCursorARGB(xf86CrtcPtr crtc, CARD32 * image)
-{
-	return load_cursor_argb(crtc, image);
-}
-#else
 static void
 MSMCrtcLoadCursorARGB(xf86CrtcPtr crtc, CARD32 * image)
 {
-	load_cursor_argb(crtc, image);
+	MSMCrtcLoadCursorARGBCheck(crtc, image);
 }
-#endif
 
 
 static const xf86CrtcFuncsRec MSMCrtcFuncs = {
@@ -372,6 +364,9 @@ static const xf86CrtcFuncsRec MSMCrtcFuncs = {
 		.set_cursor_position = MSMCrtcSetCursorPosition,
 		.show_cursor = MSMCrtcShowCursor,
 		.hide_cursor = MSMCrtcHideCursor,
+#if XORG_VERSION_CURRENT >= XORG_VERSION_NUMERIC(1,15,99,902,0)
+		.load_cursor_argb_check = MSMCrtcLoadCursorARGBCheck,
+#endif
 		.load_cursor_argb = MSMCrtcLoadCursorARGB,
 		.gamma_set = MSMCrtcGammaSet,
 		.destroy = NULL, /* XXX */
