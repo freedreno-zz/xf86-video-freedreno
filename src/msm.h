@@ -55,6 +55,7 @@ typedef enum
 	OPTION_NOACCEL,
 	OPTION_SWCURSOR,
 	OPTION_SWREFRESHER,
+	OPTION_EXAMASK,
 	OPTION_VSYNC,
 	OPTION_DEBUG,
 } MSMOpts;
@@ -77,6 +78,13 @@ typedef struct _MSMRec
 	Bool HWCursor;
 	Bool SWRefresher;
 
+	enum {
+		ACCEL_SOLID     = 0x1,
+		ACCEL_COPY      = 0x2,
+		ACCEL_COMPOSITE = 0x4,
+		ACCEL_DEFAULT   = ACCEL_SOLID | ACCEL_COPY | ACCEL_COMPOSITE,
+	} examask;
+
 	int drmFD;
 
 	int pending_page_flips;
@@ -84,10 +92,6 @@ typedef struct _MSMRec
 	struct fd_device *dev;
 	char *deviceName;
 
-	/* for now just a single ringbuffer.. not sure if we need more..
-	 * probably would like more until context restore works in a sane
-	 * way..
-	 */
 	struct {
 		int idx;
 		struct fd_ringbuffer *rings[8];

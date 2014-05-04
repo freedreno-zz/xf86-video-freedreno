@@ -77,6 +77,7 @@ static const OptionInfoRec MSMOptions[] = {
 		{OPTION_FB, "fb", OPTV_STRING, {0}, FALSE},
 		{OPTION_NOACCEL, "NoAccel", OPTV_BOOLEAN, {0}, FALSE},
 		{OPTION_SWCURSOR, "SWCursor", OPTV_BOOLEAN, {0}, FALSE},
+		{OPTION_EXAMASK, "examask", OPTV_INTEGER, {0}, FALSE},
 		{OPTION_SWREFRESHER, "SWRefresher", OPTV_BOOLEAN, {0}, FALSE},
 		{OPTION_VSYNC, "DefaultVsync", OPTV_INTEGER, {0}, FALSE},
 		{OPTION_DEBUG, "Debug", OPTV_BOOLEAN, {0}, FALSE},
@@ -166,6 +167,7 @@ MSMPreInit(ScrnInfoPtr pScrn, int flags)
 	MSMPtr pMsm;
 	rgb defaultWeight = { 0, 0, 0 };
 	Gamma zeros = { 0.0, 0.0, 0.0 };
+	unsigned long val;
 
 	DEBUG_MSG("pre-init");
 
@@ -252,6 +254,22 @@ MSMPreInit(ScrnInfoPtr pScrn, int flags)
 
 	/* SWRefresher - default TRUE */
 	pMsm->SWRefresher = xf86ReturnOptValBool(pMsm->options, OPTION_SWREFRESHER, TRUE);
+
+	if (xf86GetOptValULong(pMsm->options, OPTION_EXAMASK, &val))
+		pMsm->examask = val;
+	else
+		pMsm->examask = ACCEL_DEFAULT;
+
+	INFO_MSG("Option Summary:");
+	INFO_MSG("  NoAccel:     %d", pMsm->NoAccel);
+	INFO_MSG("  HWCursor:    %d", pMsm->HWCursor);
+	INFO_MSG("  examask:     %d", pMsm->examask);
+	if (pMsm->NoKMS) {
+		const char *fb = xf86GetOptValString(pMsm->options, OPTION_FB);
+		INFO_MSG("  fb:          %s", fb);
+		INFO_MSG("  SWRefresher: %d", pMsm->SWRefresher);
+	}
+	INFO_MSG("  Debug:       %d", msmDebug);
 
 	xf86PrintModes(pScrn);
 

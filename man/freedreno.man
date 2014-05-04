@@ -47,6 +47,12 @@ Enable SW Refresher.  Only applicable for fbdev/kgsl, unused for drm/msm.
 .IP
 Default: Enabled
 .TP
+.BI "Option \*qexamask\*q \*q" integer \*q
+Bitmask of enabled EXA functions: 1-Solid, 2-Copy, 4-Composite.
+Mostly intended for debugging.
+.IP
+Default: 7
+.TP
 .BI "Option \*qfb\*q \*q" string \*q
 Path to fbdev device file.  Required to use fbdev/kgsl, unused for drm/msm.
 .IP

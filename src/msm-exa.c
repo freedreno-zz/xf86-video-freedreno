@@ -231,6 +231,7 @@ MSMPrepareSolid(PixmapPtr pPixmap, int alu, Pixel planemask, Pixel fg)
 {
 	MSM_LOCALS(pPixmap);
 
+	EXA_FAIL_IF(!(pMsm->examask & ACCEL_SOLID));
 	EXA_FAIL_IF(planemask != FB_ALLONES);
 	EXA_FAIL_IF(alu != GXcopy);
 
@@ -350,6 +351,7 @@ MSMPrepareCopy(PixmapPtr pSrcPixmap, PixmapPtr pDstPixmap, int dx, int dy,
 {
 	MSM_LOCALS(pDstPixmap);
 
+	EXA_FAIL_IF(!(pMsm->examask & ACCEL_COPY));
 	EXA_FAIL_IF(planemask != FB_ALLONES);
 	EXA_FAIL_IF(alu != GXcopy);
 
@@ -482,6 +484,8 @@ MSMCheckComposite(int op, PicturePtr pSrcPicture, PicturePtr pMaskPicture,
 	MSM_LOCALS(pDstPicture->pDrawable);
 	int idx = 0;
 
+	EXA_FAIL_IF(!(pMsm->examask & ACCEL_COMPOSITE));
+
 	// TODO proper handling for RGB vs BGR!
 
 	EXA_FAIL_IF((pDstPicture->format != PICT_a8r8g8b8) &&
@@ -590,6 +594,8 @@ MSMPrepareComposite(int op, PicturePtr pSrcPicture, PicturePtr pMaskPicture,
 		PicturePtr pDstPicture, PixmapPtr pSrc, PixmapPtr pMask, PixmapPtr pDst)
 {
 	MSM_LOCALS(pDst);
+
+	EXA_FAIL_IF(!(pMsm->examask & ACCEL_COMPOSITE));
 
 	// TODO, maybe we can support this.. pSrcPicture could be telling
 	// us to do solid, which we could probably support

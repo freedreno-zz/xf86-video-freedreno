@@ -84,6 +84,7 @@ XAPrepareSolid(PixmapPtr pPixmap, int alu, Pixel planemask, Pixel fg)
 {
 	MSM_LOCALS(pPixmap);
 	struct xa_surface *dst = msm_get_pixmap_surf(pPixmap);
+	EXA_FAIL_IF(!(pMsm->examask & ACCEL_SOLID));
 	if (!dst)
 		return FALSE;
 	return xa_solid_prepare(exa->ctx, dst, fg) == XA_ERR_NONE;
@@ -172,6 +173,7 @@ XAPrepareCopy(PixmapPtr pSrcPixmap, PixmapPtr pDstPixmap, int dx, int dy,
 	MSM_LOCALS(pDstPixmap);
 	struct xa_surface *src = msm_get_pixmap_surf(pSrcPixmap);
 	struct xa_surface *dst = msm_get_pixmap_surf(pDstPixmap);
+	EXA_FAIL_IF(!(pMsm->examask & ACCEL_COPY));
 	if (!(src && dst))
 		return FALSE;
 	return xa_copy_prepare(exa->ctx, dst, src) == XA_ERR_NONE;
@@ -461,6 +463,7 @@ XACheckComposite(int op, PicturePtr pSrcPicture, PicturePtr pMaskPicture,
 		PicturePtr pDstPicture)
 {
 	MSM_LOCALS(pDstPicture->pDrawable);
+	EXA_FAIL_IF(!(pMsm->examask & ACCEL_COMPOSITE));
 	if (!xa_setup_composite(exa, op, pSrcPicture, pMaskPicture, pDstPicture))
 		return FALSE;
 	EXA_FAIL_IF(xa_composite_check_accelerated(&exa->comp) != XA_ERR_NONE);
@@ -528,6 +531,7 @@ XAPrepareComposite(int op, PicturePtr pSrcPicture, PicturePtr pMaskPicture,
 		PicturePtr pDstPicture, PixmapPtr pSrc, PixmapPtr pMask, PixmapPtr pDst)
 {
 	MSM_LOCALS(pDst);
+	EXA_FAIL_IF(!(pMsm->examask & ACCEL_COMPOSITE));
 	if (!xa_update_composite(&exa->comp, pSrc, pMask, pDst))
 		return FALSE;
 	EXA_FAIL_IF(xa_composite_prepare(exa->ctx, &exa->comp) != XA_ERR_NONE);
