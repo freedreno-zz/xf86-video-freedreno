@@ -72,6 +72,14 @@ PKG_CHECK_MODULES([XATRACKER], [xatracker >= 2.2.0],
 	BUILD_XA=no)
 AM_CONDITIONAL(BUILD_XA, [test "$BUILD_XA" = "yes"])
 
+PKG_CHECK_MODULES(LIBUDEV, [libudev], [LIBUDEV=yes], [LIBUDEV=no])
+if test "x$LIBUDEV" = xyes; then
+	AC_DEFINE(HAVE_LIBUDEV, 1, [libudev support])
+fi
+AM_CONDITIONAL(LIBUDEV, [ test "x$LIBUDEV" = "xyes" ] )
+AC_SUBST([LIBUDEV_CFLAGS])
+AC_SUBST([LIBUDEV_LIBS])
+
 # Checks for header files.
 AC_HEADER_STDC
 
