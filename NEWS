@@ -1,3 +1,16 @@
+Release 1.1.0 (2014-05-06)
+==========================
+Overdue for another release.
+
+ * XA state tracker support for 2D accel using 3D core on devices
+   without a z180/2d core.  (Ie. anything recent.)
+
+ * Updates for cursor ABI changes in latest xserver
+
+ * Lots of bug fixes
+
+ * Now has a man page which actually documents conf file options
+
 Release 1.0.0 (2013-11-16)
 ==========================
 First Release
