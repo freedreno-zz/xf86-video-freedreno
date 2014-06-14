@@ -129,6 +129,13 @@ static drmServerInfo drm_server_info = {
 	dri_drm_get_perms,
 };
 
+static void
+free_msm(MSMPtr pMsm)
+{
+	if (pMsm->drmFD)
+		drmClose(pMsm->drmFD);
+	free(pMsm);
+}
 
 static Bool
 MSMInitDRM(ScrnInfoPtr pScrn)
@@ -212,7 +219,7 @@ MSMPreInit(ScrnInfoPtr pScrn, int flags)
 	pScrn->progClock = TRUE;
 	pScrn->chipset = MSM_DRIVER_NAME;
 
-	INFO_MSG("MSM/Qualcomm processor (video memory: %dkB)", pScrn->videoRam / 1024);
+	INFO_MSG("MSM/Qualcomm processor");
 
 	if (!MSMInitDRM(pScrn)) {
 		ERROR_MSG("Unable to open DRM");
@@ -236,7 +243,7 @@ MSMPreInit(ScrnInfoPtr pScrn, int flags)
 	pMsm->options = malloc(sizeof(MSMOptions));
 
 	if (pMsm->options == NULL) {
-		free(pMsm);
+		free_msm(pMsm);
 		return FALSE;
 	}
 
@@ -279,18 +286,18 @@ MSMPreInit(ScrnInfoPtr pScrn, int flags)
 	xf86SetDpi(pScrn, 0, 0);
 
 	if (!xf86SetWeight(pScrn, defaultWeight, defaultWeight)) {
-		free(pMsm);
+		free_msm(pMsm);
 		return FALSE;
 	}
 
 	/* Initialize default visual */
 	if (!xf86SetDefaultVisual(pScrn, -1)) {
-		free(pMsm);
+		free_msm(pMsm);
 		return FALSE;
 	}
 
 	if (!xf86SetGamma(pScrn, zeros)) {
-		free(pMsm);
+		free_msm(pMsm);
 		return FALSE;
 	}
 
@@ -545,6 +552,14 @@ MSMLeaveVT(VT_FUNC_ARGS_DECL)
 	}
 }
 
+static void
+MSMFreeScreen(FREE_SCREEN_ARGS_DECL)
+{
+	SCRN_INFO_PTR(arg);
+	MSMPtr pMsm = MSMPTR(pScrn);
+	free_msm(pMsm);
+}
+
 /* ------------------------------------------------------------ */
 /* Following is the standard driver setup that probes for the   */
 /* hardware and sets up the structures.                         */
@@ -657,6 +672,7 @@ MSMProbe(DriverPtr drv, int flags)
 		pScrn->SwitchMode = MSMSwitchMode;
 		pScrn->EnterVT = MSMEnterVT;
 		pScrn->LeaveVT = MSMLeaveVT;
+		pScrn->FreeScreen = MSMFreeScreen;
 	}
 
 	free(sections);
