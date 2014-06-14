@@ -90,6 +90,8 @@ static void MSMLeaveVT(VT_FUNC_ARGS_DECL);
 
 Bool msmDebug = TRUE;
 
+static Bool supports_non_pci_platform_devs = FALSE;
+
 static void
 MSMBlockHandler (BLOCKHANDLER_ARGS_DECL)
 {
@@ -679,6 +681,85 @@ MSMProbe(DriverPtr drv, int flags)
 	return foundScreen;
 }
 
+#if 1 /* XORG_VERSION_CURRENT >= XORG_VERSION_NUMERIC(???) */
+#  define SERVER_SUPPORTS_NON_PCI_PLATFORM_DEVS 12
+#  pragma GCC diagnostic ignored "-Wswitch"
+#endif
+
+static Bool
+MSMDriverFunc(ScrnInfoPtr scrn, xorgDriverFuncOp op, void *data)
+{
+	xorgHWFlags *flag;
+
+	switch (op) {
+	case GET_REQUIRED_HW_INTERFACES:
+		flag = (CARD32 *)data;
+		(*flag) = 0;
+		return TRUE;
+	case SERVER_SUPPORTS_NON_PCI_PLATFORM_DEVS:
+		supports_non_pci_platform_devs = TRUE;
+		return TRUE;
+	default:
+		return FALSE;
+	}
+}
+
+#ifdef XSERVER_PLATFORM_BUS
+static Bool probe_hw(struct xf86_platform_device *dev)
+{
+	int fd;
+
+	if (!supports_non_pci_platform_devs) {
+		ErrorF("Server does not support auto-config of platform devices.\n");
+		ErrorF("You must load freedreno driver via .conf file.\n");
+		return FALSE;
+	}
+
+	/* NOTE: for kgsl we still need config file to find fbdev device,
+	 * so it will always be probed through the old MSMProbe path.  So
+	 * only look for drm/msm here:
+	 */
+
+	fd = drmOpen("msm", NULL);
+	if (fd != -1) {
+		close(fd);
+		return TRUE;
+	}
+
+	return FALSE;
+}
+
+static Bool
+MSMPlatformProbe(DriverPtr driver,
+		int entity_num, int flags, struct xf86_platform_device *dev,
+		intptr_t match_data)
+{
+	ScrnInfoPtr pScrn = NULL;
+	int scr_flags = 0;
+
+	if (flags & PLATFORM_PROBE_GPU_SCREEN)
+		scr_flags = XF86_ALLOCATE_GPU_SCREEN;
+
+	if (probe_hw(dev)) {
+		pScrn = xf86AllocateScreen(driver, scr_flags);
+		xf86AddEntityToScreen(pScrn, entity_num);
+
+		pScrn->driverVersion = MSM_VERSION_CURRENT;
+		pScrn->driverName = MSM_NAME;
+		pScrn->name = MSM_NAME;
+		pScrn->Probe = MSMProbe;
+		pScrn->PreInit = MSMPreInit;
+		pScrn->ScreenInit = MSMScreenInit;
+		pScrn->SwitchMode = MSMSwitchMode;
+		pScrn->EnterVT = MSMEnterVT;
+		pScrn->LeaveVT = MSMLeaveVT;
+		pScrn->FreeScreen = MSMFreeScreen;
+	}
+
+	return pScrn != NULL;
+}
+#endif
+
 _X_EXPORT DriverRec freedrenoDriver = {
 		MSM_VERSION_CURRENT,
 		MSM_DRIVER_NAME,
@@ -687,7 +768,12 @@ _X_EXPORT DriverRec freedrenoDriver = {
 		MSMAvailableOptions,
 		NULL,
 		0,
-		NULL
+		MSMDriverFunc,
+		NULL,
+		NULL,  /* pci_probe */
+#ifdef XSERVER_PLATFORM_BUS
+		MSMPlatformProbe,
+#endif
 };
 
 MODULESETUPPROTO(freedrenoSetup);
