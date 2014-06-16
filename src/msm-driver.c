@@ -135,6 +135,10 @@ static void
 free_msm(MSMPtr pMsm)
 {
 	if (pMsm->drmFD)
+#ifdef XF86_PDEV_SERVER_FD
+		if (!(pMsm->pEnt->location.type == BUS_PLATFORM &&
+			(pMsm->pEnt->location.id.plat->flags & XF86_PDEV_SERVER_FD)))
+#endif
 		drmClose(pMsm->drmFD);
 	free(pMsm);
 }
@@ -696,6 +700,10 @@ MSMDriverFunc(ScrnInfoPtr scrn, xorgDriverFuncOp op, void *data)
 		flag = (CARD32 *)data;
 		(*flag) = 0;
 		return TRUE;
+#ifdef XF86_PDEV_SERVER_FD
+	case SUPPORTS_SERVER_FDS:
+		return TRUE;
+#endif
 	case SERVER_SUPPORTS_NON_PCI_PLATFORM_DEVS:
 		supports_non_pci_platform_devs = TRUE;
 		return TRUE;
@@ -719,6 +727,26 @@ static Bool probe_hw(struct xf86_platform_device *dev)
 	 * so it will always be probed through the old MSMProbe path.  So
 	 * only look for drm/msm here:
 	 */
+
+#if XF86_PDEV_SERVER_FD
+	if (dev && (dev->flags & XF86_PDEV_SERVER_FD)) {
+		drmVersionPtr version;
+
+		fd = xf86_get_platform_device_int_attrib(dev, ODEV_ATTRIB_FD, -1);
+		if (fd == -1)
+			return FALSE;
+
+		version = drmGetVersion(fd);
+		/* make sure we have the right device: */
+		if (version && (strcmp(version->name, "msm") == 0)) {
+			drmFreeVersion(version);
+			return TRUE;
+		}
+
+		drmFreeVersion(version);
+		return FALSE;
+	}
+#endif
 
 	fd = drmOpen("msm", NULL);
 	if (fd != -1) {
