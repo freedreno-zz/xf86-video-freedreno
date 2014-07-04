@@ -80,6 +80,23 @@ AM_CONDITIONAL(LIBUDEV, [ test "x$LIBUDEV" = "xyes" ] )
 AC_SUBST([LIBUDEV_CFLAGS])
 AC_SUBST([LIBUDEV_LIBS])
 
+
+# Define a configure option for an alternate X Server configuration directory
+sysconfigdir=`$PKG_CONFIG --variable=sysconfigdir xorg-server`
+AC_ARG_WITH(xorg-conf-dir,
+            AC_HELP_STRING([--with-xorg-conf-dir=DIR],
+                           [Default xorg.conf.d directory [[default=from $PKG_CONFIG xorg-server]]]),
+            [configdir="$withval"],
+            [configdir="$sysconfigdir"])
+AC_SUBST(configdir)
+
+# Older xserver is unhappy to encounter the new OutputClass
+# sections, so avoid installing them if built for older
+# server:
+PKG_CHECK_EXISTS([xorg-server >= 1.15.99.904], [], [sysconfigdir=""])
+
+AM_CONDITIONAL(HAS_XORG_CONF_DIR, [test "x$sysconfigdir" != "x"])
+
 # Checks for header files.
 AC_HEADER_STDC
 
@@ -98,4 +115,5 @@ AC_OUTPUT([
 	Makefile
 	src/Makefile
 	man/Makefile
+	conf/Makefile
 ])
