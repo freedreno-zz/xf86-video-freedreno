@@ -1,3 +1,13 @@
+Release 1.2.0 (2014-07-14)
+==========================
+
+ * support for server managed fd's (ie. running xserver as non-root)
+
+ * platform-probe and autoconfig support, so no .conf file needed
+   with xserver 1.16+
+
+ * bump libdrm requirement, and misc fixes
+
 Release 1.1.0 (2014-05-06)
 ==========================
 Overdue for another release.
