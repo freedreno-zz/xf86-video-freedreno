@@ -340,9 +340,20 @@ drmmode_set_mode_major(xf86CrtcPtr crtc, DisplayModePtr mode,
 	int fb_id;
 	drmModeModeInfo kmode;
 
-	if (drmmode->fb_id == 0)
-		if (!drmmode_xf86crtc_resize(pScrn, mode->HDisplay, mode->VDisplay))
+	if (drmmode->fb_id == 0) {
+		int pitch = MSMAlignedStride(pScrn->virtualX,
+				pScrn->bitsPerPixel);
+		ret = drmModeAddFB(drmmode->fd, pScrn->virtualX, pScrn->virtualY,
+				pScrn->depth, pScrn->bitsPerPixel, pitch,
+				fd_bo_handle(pMsm->scanout), &drmmode->fb_id);
+		if (ret) {
+			xf86DrvMsg(crtc->scrn->scrnIndex, X_ERROR,
+					"Error adding FB for scanout: %s\n",
+					strerror(-ret));
 			return FALSE;
+		}
+		pScrn->displayWidth = pitch / (pScrn->bitsPerPixel >> 3);
+	}
 
 	if (!xf86CrtcRotate(crtc))
 		return FALSE;
