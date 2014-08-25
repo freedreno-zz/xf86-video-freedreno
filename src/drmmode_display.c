@@ -41,15 +41,11 @@
 #include "xf86RandR12.h"
 #include "X11/Xatom.h"
 
-#include "vbe.h"
 #include "dixstruct.h"
 #include "scrnintstr.h"
 #include "fb.h"
 #include "xf86cmap.h"
 #include "shadowfb.h"
-
-//#include "xf86xv.h"
-//#include <X11/extensions/Xv.h>
 
 #include "region.h"
 
