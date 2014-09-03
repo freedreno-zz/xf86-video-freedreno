@@ -111,6 +111,7 @@ typedef struct _MSMRec
 	struct fd_bo *scanout;
 
 	OptionInfoPtr     options;
+	EntityInfoPtr     pEnt;
 } MSMRec, *MSMPtr;
 
 struct msm_pixmap_priv {

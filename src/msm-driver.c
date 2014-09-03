@@ -225,6 +225,8 @@ MSMPreInit(ScrnInfoPtr pScrn, int flags)
 
 	INFO_MSG("MSM/Qualcomm processor");
 
+	pMsm->pEnt = xf86GetEntityInfo(pScrn->entityList[0]);
+
 	if (!MSMInitDRM(pScrn)) {
 		ERROR_MSG("Unable to open DRM");
 		return FALSE;
@@ -531,7 +533,14 @@ MSMEnterVT(VT_FUNC_ARGS_DECL)
 	DEBUG_MSG("enter-vt");
 
 	if (!pMsm->NoKMS) {
-		int ret = drmSetMaster(pMsm->drmFD);
+		int ret;
+#ifdef XF86_PDEV_SERVER_FD
+		if (!(pMsm->pEnt->location.type == BUS_PLATFORM &&
+			(pMsm->pEnt->location.id.plat->flags & XF86_PDEV_SERVER_FD)))
+			ret = 0;
+		else
+#endif
+		ret = drmSetMaster(pMsm->drmFD);
 		if (ret)
 			ERROR_MSG("Unable to get master: %s", strerror(errno));
 	}
@@ -556,7 +565,14 @@ MSMLeaveVT(VT_FUNC_ARGS_DECL)
 	DEBUG_MSG("leave-vt");
 
 	if (!pMsm->NoKMS) {
-		int ret = drmDropMaster(pMsm->drmFD);
+		int ret;
+#ifdef XF86_PDEV_SERVER_FD
+		if (!(pMsm->pEnt->location.type == BUS_PLATFORM &&
+			(pMsm->pEnt->location.id.plat->flags & XF86_PDEV_SERVER_FD)))
+			ret = 0;
+		else
+#endif
+		ret = drmDropMaster(pMsm->drmFD);
 		if (ret)
 			ERROR_MSG("Unable to drop master: %s", strerror(errno));
 	}
