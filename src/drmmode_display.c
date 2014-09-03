@@ -1538,6 +1538,7 @@ drmmode_screen_fini(ScreenPtr pScreen)
 			drmmode_wakeup_handler, pScrn);
 	RemoveGeneralSocket(drmmode->fd);
 
+	drmmode_remove_fb(pScrn);
 	fd_bo_del(pMsm->scanout);
 	pMsm->scanout = NULL;
 }
