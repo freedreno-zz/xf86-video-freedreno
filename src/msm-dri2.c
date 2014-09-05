@@ -93,18 +93,9 @@ static int
 MSMDRI2DrawableGone(pointer p, XID id)
 {
 	MSMDRI2DrawablePtr pPriv = p;
-	DrawablePtr pDraw = pPriv->pDraw;
 
 	if (pPriv->pThirdBuffer)
-		MSMDRI2DestroyBuffer(pDraw, pPriv->pThirdBuffer);
-
-	if (pDraw->type == DRAWABLE_WINDOW) {
-		dixSetPrivate(&((WindowPtr)pDraw)->devPrivates,
-				MSMDRI2WindowPrivateKey, NULL);
-	} else {
-		dixSetPrivate(&((PixmapPtr)pDraw)->devPrivates,
-				MSMDRI2PixmapPrivateKey, NULL);
-	}
+		MSMDRI2DestroyBuffer(NULL, pPriv->pThirdBuffer);
 
 	free(pPriv);
 
