@@ -85,6 +85,8 @@ XAPrepareSolid(PixmapPtr pPixmap, int alu, Pixel planemask, Pixel fg)
 	MSM_LOCALS(pPixmap);
 	struct xa_surface *dst = msm_get_pixmap_surf(pPixmap);
 	EXA_FAIL_IF(!(pMsm->examask & ACCEL_SOLID));
+	EXA_FAIL_IF(planemask != FB_ALLONES);
+	EXA_FAIL_IF(alu != GXcopy);
 	if (!dst)
 		return FALSE;
 	return xa_solid_prepare(exa->ctx, dst, fg) == XA_ERR_NONE;
