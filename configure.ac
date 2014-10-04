@@ -22,7 +22,7 @@
 
 AC_PREREQ(2.57)
 AC_INIT([xf86-video-freedreno],
-        [1.2.0],
+        [1.3.0],
         [https://bugs.freedesktop.org/enter_bug.cgi],
         [xf86-video-freedreno])
 
