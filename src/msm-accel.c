@@ -39,7 +39,7 @@
 #endif
 
 Bool
-MSMSetupAccel(ScreenPtr pScreen)
+MSMAccelInit(ScreenPtr pScreen)
 {
 	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	MSMPtr pMsm = MSMPTR(pScrn);
@@ -101,6 +101,32 @@ out:
 		pMsm->dri = MSMDRI2ScreenInit(pScreen);
 	}
 	return ret;
+}
+
+void
+MSMAccelFini(ScreenPtr pScreen)
+{
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
+	MSMPtr pMsm = MSMPTR(pScrn);
+
+	/* Close DRI2 */
+	if (pMsm->dri) {
+		MSMDRI2CloseScreen(pScreen);
+	}
+
+	/* Close EXA */
+	if (pMsm->pExa) {
+		exaDriverFini(pScreen);
+		free(pMsm->pExa);
+		pMsm->pExa = NULL;
+	}
+
+#ifdef HAVE_XA
+	if (pMsm->xa) {
+		xa_tracker_destroy(pMsm->xa);
+		pMsm->xa = NULL;
+	}
+#endif
 }
 
 void

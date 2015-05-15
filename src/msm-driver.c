@@ -356,17 +356,7 @@ MSMCloseScreen(CLOSE_SCREEN_ARGS_DECL)
 
 	DEBUG_MSG("close screen");
 
-	/* Close DRI2 */
-	if (pMsm->dri) {
-		MSMDRI2CloseScreen(pScreen);
-	}
-
-	/* Close EXA */
-	if (pMsm->pExa) {
-		exaDriverFini(pScreen);
-		free(pMsm->pExa);
-		pMsm->pExa = NULL;
-	}
+	MSMAccelFini(pScreen);
 
 	if (pScrn->vtSema) {
 		MSMLeaveVT(VT_FUNC_ARGS(0));
@@ -459,7 +449,7 @@ MSMScreenInit(SCREEN_INIT_ARGS_DECL)
 	/* Set up EXA */
 	xf86LoadSubModule(pScrn, "exa");
 
-	if (!MSMSetupAccel(pScreen))
+	if (!MSMAccelInit(pScreen))
 		ERROR_MSG("Unable to setup EXA");
 
 	/* Set up the software cursor */

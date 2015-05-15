@@ -129,7 +129,8 @@ struct msm_pixmap_priv {
 #define MSMPTR_FROM_PIXMAP(_x)         \
 		MSMPTR_FROM_SCREEN((_x)->drawable.pScreen)
 
-Bool MSMSetupAccel(ScreenPtr pScreen);
+Bool MSMAccelInit(ScreenPtr pScreen);
+void MSMAccelFini(ScreenPtr pScreen);
 void MSMFlushAccel(ScreenPtr pScreen);
 Bool MSMSetupExa(ScreenPtr, Bool softexa);
 Bool MSMSetupExaXA(ScreenPtr);

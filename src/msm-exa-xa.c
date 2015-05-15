@@ -745,6 +745,7 @@ XACreatePixmap2(ScreenPtr pScreen, int width, int height,
 		uint32_t handle, stride;
 		xa_surface_handle(priv->surf, xa_handle_type_kms,
 				&handle, &stride);
+		priv->bo = fd_bo_from_handle(pMsm->dev, handle, 0);
 		*new_fb_pitch = stride;
 		return priv;
 	}
