@@ -1009,6 +1009,8 @@ const char *output_names[] = {
 		"HDMI",
 		"TV",
 		"eDP",
+		"Virtual",
+		"DSI",
 };
 #define NUM_OUTPUT_NAMES (sizeof(output_names) / sizeof(output_names[0]))
 
