@@ -489,9 +489,9 @@ MSMDRI2SwapComplete(MSMDRISwapCmd *cmd, uint32_t frame,
 		}
 		if (pPriv->cmd) {
 			/* dispatch queued flip: */
-			MSMDRISwapCmd *cmd = pPriv->cmd;
+			MSMDRISwapCmd *next_cmd = pPriv->cmd;
 			pPriv->cmd = NULL;
-			MSMDRI2SwapDispatch(pDraw, cmd);
+			MSMDRI2SwapDispatch(pDraw, next_cmd);
 		}
 		pPriv->pending_swaps--;
 	}
@@ -550,6 +550,7 @@ MSMDRI2ScheduleSwap(ClientPtr client, DrawablePtr pDraw,
 		if (pPriv->cmd) {
 			ERROR_MSG("already pending a flip!");
 			pPriv->pending_swaps--;
+			free(cmd);
 			return FALSE;
 		}
 		pPriv->cmd = cmd;

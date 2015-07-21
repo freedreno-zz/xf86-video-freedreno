@@ -780,6 +780,9 @@ XADestroyPixmap(ScreenPtr pScreen, void *dpriv)
 	if (priv->surf)
 		xa_surface_unref(priv->surf);
 
+	if (priv->ptr)
+		free(priv->ptr);
+
 	free(priv);
 }
 
