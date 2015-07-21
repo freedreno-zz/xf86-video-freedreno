@@ -77,8 +77,6 @@ if test "x$LIBUDEV" = xyes; then
 	AC_DEFINE(HAVE_LIBUDEV, 1, [libudev support])
 fi
 AM_CONDITIONAL(LIBUDEV, [ test "x$LIBUDEV" = "xyes" ] )
-AC_SUBST([LIBUDEV_CFLAGS])
-AC_SUBST([LIBUDEV_LIBS])
 
 
 # Define a configure option for an alternate X Server configuration directory
@@ -100,7 +98,6 @@ AM_CONDITIONAL(HAS_XORG_CONF_DIR, [test "x$sysconfigdir" != "x"])
 # Checks for header files.
 AC_HEADER_STDC
 
-AC_SUBST([XORG_CFLAGS])
 AC_SUBST([moduledir])
 AC_SUBST([CFLAGS])
 AC_SUBST([CCASFLAGS])
