@@ -1,3 +1,13 @@
+Release 1.4.0 (2015-10-08)
+==========================
+
+ * Couple bug fixes
+
+ * Add output name for DSI (so doesn't show up as "Unknown")
+
+NOTE: if you have a new enough xserver to use xf86-video-modesetting
+with glamor, you probably should.
+
 Release 1.3.0 (2014-10-04)
 ==========================
 
